@@ -37,6 +37,8 @@ int NetBridge_PollRaceStart(NetBridgeRace* out) {
     return 1;
 }
 
+int NetBridge_RaceStartPending(void) { return Net::RacePending() ? 1 : 0; }
+
 void NetBridge_RaceBegin(void) { Net::RaceBegin(); }
 
 void NetBridge_RaceEnd(void) { Net::RaceEnd(); }

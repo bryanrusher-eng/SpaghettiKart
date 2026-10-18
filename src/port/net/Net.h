@@ -97,6 +97,7 @@ void RaceBegin();
 void RaceEnd();
 bool RaceActive();
 bool RaceBusy(); // carrera cargandose o en marcha
+bool RacePending(); // hay un aviso de carrera por atender (aun no consumido por el juego)
 // Fin de carrera acordado por todos: el anfitrion sigue sirviendo mandos unos segundos por si alguien va atrasado.
 void RaceEndGraceful();
 // Anfitrion: suma una victoria al jugador de ese slot (se reparte a todos con la lista de jugadores).

@@ -21,6 +21,8 @@ typedef struct NetBridgeRace {
 
 // Devuelve 1 una sola vez cuando hay una carrera online que cargar.
 int NetBridge_PollRaceStart(NetBridgeRace* out);
+// 1 si hay un aviso de carrera pendiente de atender (sin consumirlo).
+int NetBridge_RaceStartPending(void);
 void NetBridge_RaceBegin(void);
 void NetBridge_RaceEnd(void);
 // Fin de carrera acordado por todos (el anfitrion sigue sirviendo mandos unos segundos).

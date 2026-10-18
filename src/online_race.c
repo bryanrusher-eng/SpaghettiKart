@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "online_race.h"
 #include "camera.h"
@@ -30,6 +31,7 @@ static int sLHeld = 0; // el boton L del mando local esta pulsado
 static u32 sHumanMask = 0;
 static u32 sTick = 0;
 static FILE* sLog = NULL;
+static int sDemoCancelled = 0;
 static int sResultsTimer = -1; // ticks desde que se muestran los resultados (-1 = aun no)
 
 #define RESULTS_TICKS 450 // 15 s
@@ -109,6 +111,9 @@ int online_view_slot(void) {
 void online_poll_start(void) {
     int i;
 
+    if (!gDemoMode) {
+        sDemoCancelled = 0;
+    }
     if (gOnlineRaceSetup || gOnlineRace) {
         return;
     }
@@ -119,6 +124,15 @@ void online_poll_start(void) {
         if (gIsInQuitToMenuTransition != 0 || gGamestate == 255) {
             return;
         }
+    }
+    // Si la pantalla de titulo esta en plena demostracion automatica, se cancela: si no, la carrera online tendria que
+    // esperar a que termine la demo (casi un minuto).
+    if (gDemoMode && gGamestate == RACING && NetBridge_RaceStartPending()) {
+        if (!sDemoCancelled) {
+            sDemoCancelled = 1;
+            func_8028FBD4();
+        }
+        return;
     }
     if (!NetBridge_PollRaceStart(&sParams)) {
         return;
@@ -155,6 +169,9 @@ void online_poll_start(void) {
     }
     gCharacterSelections[0] = online_slot_character(0);
     gDemoMode = 0;
+    // El modo debug del juego (Z arranca la carrera, saltar vueltas, salir con R+L+A+B...) cambia la simulacion: si una
+    // PC lo tiene activo y otra no, se desincronizan. En carrera en red siempre va apagado.
+    gEnableDebugMode = 0;
     gMenuSelection = COURSE_SELECT_MENU; // distinto de START_MENU: asi setup_race() elige la pista de la copa
 
     sResultsTimer = -1;

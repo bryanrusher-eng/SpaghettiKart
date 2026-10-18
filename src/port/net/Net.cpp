@@ -35,6 +35,7 @@ static const int kConnReset = ECONNRESET;
 #include <cstdlib>
 #include <chrono>
 #include <cstring>
+#include <cstdio>
 #include <map>
 
 namespace Net {
@@ -1414,6 +1415,8 @@ void RaceEnd() {
 }
 
 bool RaceActive() { return g_race.active; }
+
+bool RacePending() { return g_race.pending; }
 
 bool RaceBusy() { return (g_race.active && g_raceEndAt == 0) || g_race.pending || g_race.starting; }
 
