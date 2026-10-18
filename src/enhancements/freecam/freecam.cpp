@@ -357,7 +357,7 @@ void freecam_keyboard_manager(Camera* camera, Vec3f forwardVector) {
 
     // Target next player
     if (TargetNextPlayer) {
-        if (fRankIndex < 7) {
+        if (fRankIndex < NUM_PLAYERS - 1) {
             fRankIndex++;
             camera->playerId = fRankIndex;
             gScreenOneCtx->player = &gPlayers[fRankIndex];

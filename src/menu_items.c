@@ -1058,6 +1058,16 @@ MenuTexture* gGlyphTextureLUT[] = {
     D_0200455C,
 };
 
+// Boton "ONLINE" (globo con red) de la pantalla GAME SELECT. La imagen la aporta el mod
+// spaghetti-places16 (textures/menu_online/texture_online, RGBA16 64x18).
+static const char sOnlineButtonTexture[] = "__OTR__textures/menu_online/texture_online";
+MenuTexture seg2_textureMenuOnline[2] = {
+    { 1, (u64*) sOnlineButtonTexture, 64, 18, 0, 0, 0x0 },
+    { 0, NULL, 0, 0, 0, 0, 0 },
+};
+#define ONLINE_BUTTON_COLUMN 0x95
+#define ONLINE_BUTTON_ROW 0xC8
+
 MenuTexture* D_800E8234[] = {
     seg2_menu_1p_column, D_020047DC, seg2_menu_2p_column, D_02004804,
     seg2_menu_3p_column, D_0200482C, seg2_menu_4p_column, D_02004854,
@@ -2683,6 +2693,7 @@ void setup_menus(void) {
                 break;
             case MAIN_MENU:
                 add_menu_item(MAIN_MENU_BACKGROUND, 0, 0, MENU_ITEM_PRIORITY_2);
+                load_menu_img_comp_type(seg2_textureMenuOnline, LOAD_MENU_IMG_TKMK00_ONCE);
                 add_menu_item(MENU_ITEM_UI_GAME_SELECT, 0x0000015E, 0x00000011, MENU_ITEM_PRIORITY_6);
                 add_menu_item(MENU_ITEM_UI_4P_GAME, 0x0000015E, 0x0000003E, MENU_ITEM_PRIORITY_6);
                 add_menu_item(MENU_ITEM_UI_3P_GAME, 0x0000015E, 0x0000003E, MENU_ITEM_PRIORITY_6);
@@ -6471,6 +6482,10 @@ void render_menus(MenuItem* arg0) {
             case MENU_ITEM_UI_GAME_SELECT:
                 gDisplayListHead =
                     render_menu_textures(gDisplayListHead, seg2_game_select_texture, arg0->column, arg0->row);
+                if (gMainMenuSelection == MAIN_MENU_PLAYER_SELECT) {
+                    gDisplayListHead = render_menu_textures(gDisplayListHead, seg2_textureMenuOnline,
+                                                            ONLINE_BUTTON_COLUMN, ONLINE_BUTTON_ROW);
+                }
                 if (CVarGetInteger("gShowSpaghettiVersion", true)) {
                     draw_version();
                     draw_debug();
@@ -7645,7 +7660,7 @@ void func_800A2D1C(MenuItem* arg0) {
 }
 
 void func_800A2EB8(MenuItem* arg0) {
-    s8 sp70[8];
+    s8 sp70[MAX_PLAYERS];
     UNUSED s32 stackPadding0;
     char sp68[3];
     s32 temp_s0;
@@ -7716,7 +7731,7 @@ void func_800A32B4(s32 arg0, s32 arg1, s32 characterId, s32 rank) {
 }
 
 void func_800A34A8(MenuItem* arg0) {
-    s8 sp80[8];
+    s8 sp80[MAX_PLAYERS];
     UNUSED s32 stackPadding0;
     char sp78[3];
     UNUSED s32 stackPadding1;

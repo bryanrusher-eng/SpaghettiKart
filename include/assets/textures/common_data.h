@@ -67,6 +67,22 @@ static const ALIGN_ASSET(2) char common_texture_hud_7th[] = "__OTR__textures/com
 
 static const ALIGN_ASSET(2) char common_texture_hud_8th[] = "__OTR__textures/common_data/common_texture_hud_8th";
 
+static const ALIGN_ASSET(2) char common_texture_hud_9th[] = "__OTR__textures/common_data/common_texture_hud_9th";
+
+static const ALIGN_ASSET(2) char common_texture_hud_10th[] = "__OTR__textures/common_data/common_texture_hud_10th";
+
+static const ALIGN_ASSET(2) char common_texture_hud_11th[] = "__OTR__textures/common_data/common_texture_hud_11th";
+
+static const ALIGN_ASSET(2) char common_texture_hud_12th[] = "__OTR__textures/common_data/common_texture_hud_12th";
+
+static const ALIGN_ASSET(2) char common_texture_hud_13th[] = "__OTR__textures/common_data/common_texture_hud_13th";
+
+static const ALIGN_ASSET(2) char common_texture_hud_14th[] = "__OTR__textures/common_data/common_texture_hud_14th";
+
+static const ALIGN_ASSET(2) char common_texture_hud_15th[] = "__OTR__textures/common_data/common_texture_hud_15th";
+
+static const ALIGN_ASSET(2) char common_texture_hud_16th[] = "__OTR__textures/common_data/common_texture_hud_16th";
+
 static const char* common_texture_hud_place[] = {
 	common_texture_hud_1st,
 	common_texture_hud_2nd,
@@ -76,6 +92,14 @@ static const char* common_texture_hud_place[] = {
 	common_texture_hud_6th,
 	common_texture_hud_7th,
 	common_texture_hud_8th,
+	common_texture_hud_9th,
+	common_texture_hud_10th,
+	common_texture_hud_11th,
+	common_texture_hud_12th,
+	common_texture_hud_13th,
+	common_texture_hud_14th,
+	common_texture_hud_15th,
+	common_texture_hud_16th,
 };
 
 static const ALIGN_ASSET(2) char common_texture_first_place[] = "__OTR__textures/common_data/common_texture_first_place";

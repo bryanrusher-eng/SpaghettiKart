@@ -67,70 +67,70 @@ Vec3f D_80162FC0;
 s16 gTrainSmokeTimer;
 s16 sSomeNearestPathPoint;
 s16 D_80162FD0;
-f32 gCourseCompletionPercentByRank[NUM_PLAYERS];
+f32 gCourseCompletionPercentByRank[MAX_PLAYERS];
 /*
 The size of many of these arrays is weird. Based on their usage, they would only need
 to be 8 entries long (enough for each player). But some are 10 or even 12 long.
 Its plausible that this is just some decompilation artifact?
 Or maybe at some point in development they had plans for more players?
 */
-s16 D_80162FF8[12];
-s16 D_80163010[12];
-f32 cpu_TargetSpeed[10];
-s16 gPreviousAngleSteering[12];
-f32 gTrackPositionFactor[10];
-f32 D_80163090[10];
-bool gIsPlayerInCurve[10];
+s16 D_80162FF8[MAX_PLAYERS + 4];
+s16 D_80163010[MAX_PLAYERS + 4];
+f32 cpu_TargetSpeed[MAX_PLAYERS + 2];
+s16 gPreviousAngleSteering[MAX_PLAYERS + 4];
+f32 gTrackPositionFactor[MAX_PLAYERS + 2];
+f32 D_80163090[MAX_PLAYERS + 2];
+bool gIsPlayerInCurve[MAX_PLAYERS + 2];
 u16 gCurrentNearestPathPoint;
 s16 gIsPlayerNewPathPoint;
-s16 D_801630E8[10];
+s16 D_801630E8[MAX_PLAYERS + 2];
 s16 gFerrySmokeTimer;
-s32 D_80163100[10];
-s32 D_80163128[10];
-s32 D_80163150[10];
-f32 gPreviousPlayerAiOffsetX[10];
-f32 gPreviousPlayerAiOffsetZ[10];
+s32 D_80163100[MAX_PLAYERS + 2];
+s32 D_80163128[MAX_PLAYERS + 2];
+s32 D_80163150[MAX_PLAYERS + 2];
+f32 gPreviousPlayerAiOffsetX[MAX_PLAYERS + 2];
+f32 gPreviousPlayerAiOffsetZ[MAX_PLAYERS + 2];
 s16 sVehicleSoundRenderCounter;
 s32 D_801631CC;
 TrackPathPoint* gCurrentTrackLeftPath;
 TrackPathPoint* gCurrentTrackRightPath;
 s16* gCurrentTrackSectionTypesPath;
 s16* gCurrentPathPointExpectedRotationPath;
-u16 D_801631E0[12];
-u16 D_801631F8[10];
+u16 D_801631E0[MAX_PLAYERS + 4];
+u16 D_801631F8[MAX_PLAYERS + 2];
 f32 gCurrentCpuTargetSpeed;
-f32 gPreviousCpuTargetSpeed[10];
+f32 gPreviousCpuTargetSpeed[MAX_PLAYERS + 2];
 s32 D_80163238;
-u16 D_80163240[12];
-u16 gWrongDirectionCounter[12];
-u16 gIsPlayerWrongDirection[12];
-s32 gPreviousLapProgressScore[10];
+u16 D_80163240[MAX_PLAYERS + 4];
+u16 gWrongDirectionCounter[MAX_PLAYERS + 4];
+u16 gIsPlayerWrongDirection[MAX_PLAYERS + 4];
+s32 gPreviousLapProgressScore[MAX_PLAYERS + 2];
 CPUBehaviour* sCurrentCPUBehaviour;
-u16 gCurrentCPUBehaviourId[12];
-u16 gPreviousCPUBehaviourId[12];
-u16 cpu_BehaviourState[12];
-s16 sPlayerAngle[12];
-u16 gPlayersTrackSectionId[12];
-u16 D_80163330[10];
+u16 gCurrentCPUBehaviourId[MAX_PLAYERS + 4];
+u16 gPreviousCPUBehaviourId[MAX_PLAYERS + 4];
+u16 cpu_BehaviourState[MAX_PLAYERS + 4];
+s16 sPlayerAngle[MAX_PLAYERS + 4];
+u16 gPlayersTrackSectionId[MAX_PLAYERS + 4];
+u16 D_80163330[MAX_PLAYERS + 2];
 u16 D_80163344[2];
 u16 D_80163348[2];
-u16 D_8016334C[8]; // Increased from 2 to 8 to prevent array overflow.
-u16 gSpeedCPUBehaviour[12];
+u16 D_8016334C[MAX_PLAYERS]; // Increased from 2 to 8 to prevent array overflow.
+u16 gSpeedCPUBehaviour[MAX_PLAYERS + 4];
 s32 D_80163368[4];
 s32 gIncrementUpdatePlayer;
-s16 gCurrentPlayerLookAhead[12];
-s16 D_80163398[12];
-s16 D_801633B0[12];
-s16 D_801633C8[12];
-s16 D_801633E0[12];
-s16 D_801633F8[12];
+s16 gCurrentPlayerLookAhead[MAX_PLAYERS + 4];
+s16 D_80163398[MAX_PLAYERS + 4];
+s16 D_801633B0[MAX_PLAYERS + 4];
+s16 D_801633C8[MAX_PLAYERS + 4];
+s16 D_801633E0[MAX_PLAYERS + 4];
+s16 D_801633F8[MAX_PLAYERS + 4];
 s16 D_80163410[4];
 f32 D_80163418[4];
 f32 D_80163428[4];
 f32 D_80163438[4];
 s32 gPlayerPathIndex;
 f32 gPathStartZ;
-f32 gPreviousPlayerZ[10];
+f32 gPreviousPlayerZ[MAX_PLAYERS + 2];
 s16 gBestRankedHumanPlayer;
 s16 gIsInExtra;
 s16 D_8016347C;
@@ -139,14 +139,14 @@ s32 D_80163480;
 s32 D_80163484;
 s32 D_80163488;
 s16 D_8016348C;
-s16 cpu_enteringPathIntersection[12];
-s16 cpu_exitingPathIntersection[12];
-s16 D_801634C0[12];
-s16 bStopAICrossing[10];
+s16 cpu_enteringPathIntersection[MAX_PLAYERS + 4];
+s16 cpu_exitingPathIntersection[MAX_PLAYERS + 4];
+s16 D_801634C0[MAX_PLAYERS + 4];
+s16 bStopAICrossing[MAX_PLAYERS + 2];
 s16 D_801634EC;
 s32 D_801634F0;
 s32 D_801634F4;
-TrackPositionFactorInstruction gPlayerTrackPositionFactorInstruction[10];
+TrackPositionFactorInstruction gPlayerTrackPositionFactorInstruction[MAX_PLAYERS + 2];
 TrackPathPoint* gVehicle2DPathPoint;
 s32 gVehicle2DPathSize;
 TrackPathPoint* gVehiclePath;
@@ -162,36 +162,36 @@ VehicleStuff gCarList[NUM_RACE_CARS];
 s32 D_80163DD8[4];
 BombKart gBombKarts[NUM_BOMB_KARTS_MAX];
 struct Collision gBombKartCollision[NUM_BOMB_KARTS_MAX];
-struct unexpiredActors gUnexpiredActorsList[8];
-CpuItemStrategyData cpu_ItemStrategy[8];
+struct unexpiredActors gUnexpiredActorsList[MAX_PLAYERS];
+CpuItemStrategyData cpu_ItemStrategy[MAX_PLAYERS];
 s16 D_80164358;
 s16 D_8016435A;
 s16 D_8016435C;
-s16 gGPCurrentRacePlayerIdByRank[12]; // D_80164360
-s16 D_80164378[12];
-s32 gLapCountByPlayerId[10];          // D_80164390
-s32 gGPCurrentRaceRankByPlayerId[10]; // D_801643B8
-s32 gPreviousGPCurrentRaceRankByPlayerId[10];
-s32 gGPCurrentRaceRankByPlayerIdDup[10];
+s16 gGPCurrentRacePlayerIdByRank[MAX_PLAYERS + 4]; // D_80164360
+s16 D_80164378[MAX_PLAYERS + 4];
+s32 gLapCountByPlayerId[MAX_PLAYERS + 2];          // D_80164390
+s32 gGPCurrentRaceRankByPlayerId[MAX_PLAYERS + 2]; // D_801643B8
+s32 gPreviousGPCurrentRaceRankByPlayerId[MAX_PLAYERS + 2];
+s32 gGPCurrentRaceRankByPlayerIdDup[MAX_PLAYERS + 2];
 u16 gSelectedPathCount;
-u16 gNearestPathPointByPlayerId[12];
-s32 gNumPathPointsTraversed[10];
-s16 gGetPlayerByCharacterId[10];
+u16 gNearestPathPointByPlayerId[MAX_PLAYERS + 4];
+s32 gNumPathPointsTraversed[MAX_PLAYERS + 2];
+s16 gGetPlayerByCharacterId[MAX_PLAYERS + 2];
 s32 D_8016448C;
 TrackPathPoint* gCurrentTrackPath;
 f32 D_80164498[4];
-f32 gLapCompletionPercentByPlayerId[10];    // D_801644A8
-f32 gCourseCompletionPercentByPlayerId[10]; // D_801644D0
-s16 bInMultiPathSection[12];
-f32 gPlayerPathY[10];
-s16 D_80164538[12];
+f32 gLapCompletionPercentByPlayerId[MAX_PLAYERS + 2];    // D_801644A8
+f32 gCourseCompletionPercentByPlayerId[MAX_PLAYERS + 2]; // D_801644D0
+s16 bInMultiPathSection[MAX_PLAYERS + 4];
+f32 gPlayerPathY[MAX_PLAYERS + 2];
+s16 D_80164538[MAX_PLAYERS + 4];
 TrackPathPoint* gTrackPaths[4];
 TrackPathPoint* gTrackLeftPaths[4];
 TrackPathPoint* gTrackRightPaths[4];
 s16* gTrackSectionTypes[4];
 s16* gPathExpectedRotation[4];
 s16* gTrackConsecutiveCurveCounts[4];
-u16 gPathIndexByPlayerId[12]; // D_801645B0
+u16 gPathIndexByPlayerId[MAX_PLAYERS + 4]; // D_801645B0
 u16 gPathCountByPathIndex[4]; // D_801645C8
 s32 D_801645D0[NUM_CAMERAS];
 s16* gCurrentTrackConsecutiveCurveCountsPath;
@@ -725,7 +725,7 @@ void detect_wrong_player_direction(s32 playerId, Player* player) {
 void set_places(void) {
     s32 temp_s2;
     f32 temp_f0;
-    s32 sp80[8];
+    s32 sp80[MAX_PLAYERS];
     s32 a_really_cool_variable_name;
     UNUSED s32 pad;
     s32 var_t4;
@@ -816,7 +816,7 @@ void set_places(void) {
 void update_player_rankings(void) {
     f32 temp_f0;
     UNUSED s32 pad;
-    s32 sp50[8];
+    s32 sp50[MAX_PLAYERS];
     s32 temp_a0;
     s32 temp_t2_2;
     s32 var_a1_2;
@@ -868,7 +868,7 @@ void update_player_rankings(void) {
 void set_places_end_course_with_time(void) {
     f32 temp_a0;
     s32 temp;
-    s32 sp68[8];
+    s32 sp68[MAX_PLAYERS];
     UNUSED s32 pad;
     s32 temp_t1;
     s32 i;
@@ -922,7 +922,7 @@ void set_places_end_course_with_time(void) {
         }
     }
 
-    for (i = 0; i < 8; i++) {
+    for (i = 0; i < NUM_PLAYERS; i++) {
         gPreviousGPCurrentRaceRankByPlayerId[i] = gGPCurrentRaceRankByPlayerId[i];
     }
 
@@ -1510,7 +1510,7 @@ void update_player_path_completion(s32 playerId, Player* player) {
             if (gPathStartZ < previousPlayerZ) {
                 gLapCountByPlayerId[playerId]++;
                 if ((gModeSelection == GRAND_PRIX) && (gLapCountByPlayerId[playerId] == 5)) {
-                    if (gGPCurrentRaceRankByPlayerIdDup[playerId] == 7) {
+                    if (gGPCurrentRaceRankByPlayerIdDup[playerId] == NUM_PLAYERS - 1) {
                         // clang-format off
                         for (var_v0 = 0; var_v0 < NUM_PLAYERS; var_v0++) { gLapCountByPlayerId[var_v0]--; } // has to be one line to match
                         // clang-format on
@@ -2025,12 +2025,12 @@ void func_8000B140(s32 playerId) {
     f32 var_f18;
     f32 var_f20;
     UNUSED s32 pad[5];
-    s16 spB0[8];
+    s16 spB0[MAX_PLAYERS];
     UNUSED f32 pad2;
-    s16 sp9C[8];
+    s16 sp9C[MAX_PLAYERS];
     UNUSED f32 pad3;
     f32 temp_f2;
-    f32 sp74[8];
+    f32 sp74[MAX_PLAYERS];
     s32 temp_a1_2;
     Player* player;
     player = &gPlayers[playerId];
@@ -2075,7 +2075,7 @@ void func_8000B140(s32 playerId) {
 
     currPathPoint = gNearestPathPointByPlayerId[playerId];
     temp_f22 = (player->speed / 18.0f) * 216.0f;
-    for (i = 0; i < 8; i++) {
+    for (i = 0; i < NUM_PLAYERS; i++) {
         sp9C[i] = -1;
         spB0[i] = 0x03E8;
     }
@@ -2088,7 +2088,7 @@ void func_8000B140(s32 playerId) {
     }
     j = 0;
     i = 0;
-    while (i < 8) {
+    while (i < NUM_PLAYERS) {
         if (i != playerId) {
             player = &gPlayers[i];
             if ((player->type & PLAYER_EXISTS)) {
@@ -2587,7 +2587,7 @@ s16 update_player_path(f32 posX, f32 posY, f32 posZ, s16 waypointIndex, Player* 
                 player->lakituProps &= ~LAKITU_RETRIEVAL;
                 return waypointIndex;
             }
-            if (playerId == ((s32) D_80163488 % 8)) {
+            if ((playerId % 8) == ((s32) D_80163488 % 8)) {
                 check_bounding_collision(&player->collision, 10.0f, posX, posY, posZ);
                 gPlayersTrackSectionId[playerId] = get_track_section_id(player->collision.meshIndexZX);
                 newWaypoint = update_path_index_with_track(posX, posY, posZ, waypointIndex, pathIndex,
@@ -6921,10 +6921,10 @@ void func_8001A588(UNUSED u16* localD_80152300, Camera* camera, Player* player, 
                     func_8001A518((s32) playerId, gGPCurrentRaceRankByPlayerId[playerId], 1);
                 } else {
                     sp44 = (s32) playerId;
-                    while (var_v1 != 8) {
+                    while (var_v1 != NUM_PLAYERS) {
                         playerId += 1;
                         var_v1 += 1;
-                        if (playerId >= 8) {
+                        if (playerId >= NUM_PLAYERS) {
                             playerId = 1;
                         }
                         if ((!(gPlayers[playerId].lakituProps & HELD_BY_LAKITU) && !(gPlayers[playerId].lakituProps & LAKITU_SCENE))) {

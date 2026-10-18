@@ -506,6 +506,16 @@ void PortMenu::AddRulesets() {
         .Options(UIWidgets::IntSliderOptions().Min(0).Max(50).Step(1).DefaultValue(7));
 }
 
+void PortMenu::AddOnline() {
+    AddMenuEntry("Online", "gSettings.Menu.OnlineSidebarSection");
+    AddSidebarEntry("Online", "Multiplayer", 1);
+    WidgetPath path = { "Online", "Multiplayer", SECTION_COLUMN_1 };
+    AddWidget(path, "Abrir ventana Online", WIDGET_WINDOW_BUTTON)
+        .CVar("gOnlineWindowEnabled")
+        .Options(ButtonOptions().Tooltip("Crear una sala (Host) o unirse a una por IP y puerto."))
+        .WindowName("Online");
+}
+
 void PortMenu::AddDevTools() {
     AddMenuEntry("Developer", "gSettings.Menu.DevToolsSidebarSection");
     AddSidebarEntry("Developer", "General", 3);
@@ -631,6 +641,7 @@ void PortMenu::InitElement() {
     Ship::Menu::InitElement();
     AddSettings();
     AddEnhancements();
+    AddOnline();
     AddDevTools();
 
     if (CVarGetInteger("gSettings.Menu.SidebarSearch", 0)) {

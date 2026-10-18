@@ -43,8 +43,8 @@ typedef struct Matrix {
     Mtx Ortho;
     std::array<Mtx,5> Persp;
     std::array<Mtx,5> LookAt;
-    std::array<Mtx, 8 * 4> Karts; // Eight players * four screens
-    std::array<Mtx, 8 * 4> Shadows; // Eight players * four screens
+    std::array<Mtx, MAX_PLAYERS * 4> Karts; // MAX_PLAYERS jugadores * cuatro pantallas
+    std::array<Mtx, MAX_PLAYERS * 4> Shadows; // MAX_PLAYERS jugadores * cuatro pantallas
     std::deque<Mtx> Hud;
     std::deque<Mtx> Objects;
 

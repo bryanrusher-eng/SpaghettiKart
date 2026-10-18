@@ -2433,6 +2433,34 @@ void draw_simplified_lap_count(s32 playerId) {
                               (u8*) gHudLapTextures[playerHUD[playerId].alsoLapCount]);
 }
 
+// Puestos 9 a 16 (online): el juego original solo trae los graficos "1st" a "8th".
+// Se dibuja el numero con los digitos del cronometro (8x16 px), centrado en el cartel de puesto.
+static void draw_extra_place_number(s32 playerId) {
+    s32 place = gGPCurrentRaceRankByPlayerId[playerId] + 1;
+    s32 digits[2];
+    s32 count = 0;
+    s32 i;
+    s32 x;
+    s32 y;
+
+    if (place >= 10) {
+        digits[count++] = place / 10;
+    }
+    digits[count++] = place % 10;
+
+    x = playerHUD[playerId].rankX + playerHUD[playerId].slideRankX - ((count * 8) / 2);
+    y = playerHUD[playerId].rankY + playerHUD[playerId].slideRankY - 8;
+
+    gSPDisplayList(gDisplayListHead++, D_0D008108);
+    gSPDisplayList(gDisplayListHead++, D_0D007EF8);
+    gDPSetAlphaCompare(gDisplayListHead++, G_AC_THRESHOLD);
+    load_texture_block_rgba16_mirror((u8*) common_texture_hud_normal_digit, 104, 16);
+    for (i = 0; i < count; i++) {
+        func_8004BA98(x + (i * 8), y, 8, 16, digits[i] * 8, 0, 0);
+    }
+    gSPDisplayList(gDisplayListHead++, D_0D007EB8);
+}
+
 void func_8004E800(s32 playerId) {
     FrameInterpolation_RecordOpenChild("Player place HUD", playerId);
     if (playerHUD[playerId].unk_81 != 0) {
@@ -2456,6 +2484,11 @@ void func_8004E800(s32 playerId) {
 void func_8004E998(s32 playerId) {
     if (playerHUD[playerId].unk_81 != 0) {
         FrameInterpolation_RecordOpenChild("Player place HUD2", playerId);
+        if (gGPCurrentRaceRankByPlayerId[playerId] >= 8) {
+            draw_extra_place_number(playerId);
+            FrameInterpolation_RecordCloseChild();
+            return;
+        }
         if (playerHUD[playerId].lapCount != 3) {
             func_8004A384(playerHUD[playerId].rankX + playerHUD[playerId].slideRankX,
                           playerHUD[playerId].rankY + playerHUD[playerId].slideRankY, 0U,
@@ -2631,7 +2664,7 @@ void draw_minimap_character(s32 arg0, s32 playerId, s32 characterId) {
         y = (CM_GetProps()->Minimap.Pos[arg0].Y - (CM_GetProps()->Minimap.Height / 2)) +
             CM_GetProps()->Minimap.PlayerY + (s16) (thing1);
         if (characterId != 8) {
-            FrameInterpolation_RecordOpenChild("minimap_dots", TAG_MINIMAP_DOTS( ((arg0 & 0x1) << 6) | ((playerId & 0x7) << 3) | (characterId & 0x7) ));
+            FrameInterpolation_RecordOpenChild("minimap_dots", TAG_MINIMAP_DOTS( ((arg0 & 0x1) << 9) | ((playerId & 0xF) << 5) | (characterId & 0xF) ));
             if ((gGPCurrentRaceRankByPlayerId[playerId] == 0) && (gModeSelection != 3) && (gModeSelection != 1)) {
                 func_80046424(x, y, player->rotation[1] + 0x8000, 1.0f,
                               (u8*) common_texture_minimap_kart_character[characterId], common_vtx_player_minimap_icon,
@@ -2643,7 +2676,7 @@ void draw_minimap_character(s32 arg0, s32 playerId, s32 characterId) {
             }
             FrameInterpolation_RecordCloseChild();
         } else {
-            FrameInterpolation_RecordOpenChild("minimap_dots2", TAG_MINIMAP_DOTS( ((arg0 & 0x1) << 6) | ((playerId & 0x7) << 3) | (characterId & 0x7) ));
+            FrameInterpolation_RecordOpenChild("minimap_dots2", TAG_MINIMAP_DOTS( ((arg0 & 0x1) << 9) | ((playerId & 0xF) << 5) | (characterId & 0xF) ));
             if (gGPCurrentRaceRankByPlayerId[playerId] == 0) {
                 func_8004C450(x, y, 8, 8, (u8*) common_texture_minimap_progress[player->characterId]);
             } else {

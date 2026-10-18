@@ -19,12 +19,12 @@
 #include "menu_items.h"
 #include "port/Game.h"
 
-s32 D_8018D900[8];
-s16 D_8018D920[8];
-s32 gPlayerStarEffectStartTime[8];
-s32 gPlayerBooEffectStartTime[8];
-s32 gPlayerOtherScreensAlpha[8];
-s32 D_8018D990[8];
+s32 D_8018D900[MAX_PLAYERS];
+s16 D_8018D920[MAX_PLAYERS];
+s32 gPlayerStarEffectStartTime[MAX_PLAYERS];
+s32 gPlayerBooEffectStartTime[MAX_PLAYERS];
+s32 gPlayerOtherScreensAlpha[MAX_PLAYERS];
+s32 D_8018D990[MAX_PLAYERS];
 
 UNUSED void func_unnamed(void) {
 }

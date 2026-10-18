@@ -422,7 +422,7 @@ extern u16 D_801646CC;
 extern UnkStruct_46D0 D_801646D0[];
 
 // See bss_80005FD0.s
-extern f32 gCourseCompletionPercentByRank[NUM_PLAYERS];
+extern f32 gCourseCompletionPercentByRank[MAX_PLAYERS];
 extern s32 D_8016448C;
 extern u16 D_801637BE;
 extern u16 D_80163E2A;

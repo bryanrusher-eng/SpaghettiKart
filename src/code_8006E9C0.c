@@ -469,7 +469,7 @@ GLOBAL_ASM("asm/non_matchings/code_8006E9C0/func_8006FA94.s")
 void func_80070148(void) {
     s32 var_s0;
 
-    for (var_s0 = 0; var_s0 < 8; var_s0++) {
+    for (var_s0 = 0; var_s0 < NUM_PLAYERS; var_s0++) {
         find_unused_obj_index(&D_8018CE10[var_s0].objectIndex);
     }
 }
@@ -716,7 +716,7 @@ void init_hud_one_player(void) {
     D_801657A2 = 0x0333;
     switch (gModeSelection) { /* irregular */
         case 0:
-            D_8018D158 = 8;
+            D_8018D158 = NUM_PLAYERS;
             break;
         case 1:
             D_80165638 = (func_800B4F2C() & 0xFFFFF) - 1;
@@ -782,7 +782,7 @@ void init_hud_two_player_vertical(void) {
     D_801657A2 = 0x666;
     switch (gModeSelection) { /* irregular */
         case GRAND_PRIX:
-            D_8018D158 = 8;
+            D_8018D158 = NUM_PLAYERS;
             break;
         case VERSUS:
             D_8018D158 = 2;
@@ -853,7 +853,7 @@ void init_hud_two_player_horizontal() {
     D_801657A2 = 0x666;
     switch (gModeSelection) { /* irregular */
         case GRAND_PRIX:
-            D_8018D158 = 8;
+            D_8018D158 = NUM_PLAYERS;
             return;
         case VERSUS:
             D_8018D158 = 2;

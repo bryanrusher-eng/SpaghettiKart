@@ -1,6 +1,7 @@
 #ifndef BUFFERS_H
 #define BUFFERS_H
 
+#include <defines.h>
 #include <libultra/types.h>
 #include <mk64.h>
 #include <common_structs.h>
@@ -28,7 +29,7 @@ typedef struct {
  */
 typedef union {
     struct_D_802BFB80_4 arraySize4[2][2][4];
-    struct_D_802BFB80_8 arraySize8[2][2][8];
+    struct_D_802BFB80_8 arraySize8[2][2][MAX_PLAYERS];
 } union_D_802BFB80;
 
 /*
@@ -70,7 +71,7 @@ typedef struct {
 extern u16 gRandomSeed16;
 extern u8 randomSeedPadding[216];
 extern union_D_802BFB80 D_802BFB80;
-extern struct_D_802DFB80 gEncodedKartTexture[][2][8];
+extern struct_D_802DFB80 gEncodedKartTexture[][2][MAX_PLAYERS];
 
 /**
  * It would be nice to define gPlayerPalettesList as "struct_D_802F1F80 gPlayerPalettesList[2][4][8]".
@@ -79,9 +80,9 @@ extern struct_D_802DFB80 gEncodedKartTexture[][2][8];
  * If AVOID_UB is defined, the struct is properly defined with their correct pointers.
  **/
 #ifdef AVOID_UB
-extern struct_D_802F1F80 gPlayerPalettesList[2][4][8];
+extern struct_D_802F1F80 gPlayerPalettesList[2][4][MAX_PLAYERS];
 #else
-extern u16 gPlayerPalettesList[][4][0x100 * 8];
+extern u16 gPlayerPalettesList[][4][0x100 * MAX_PLAYERS];
 #endif
 extern u16 gZBuffer[SCREEN_WIDTH * SCREEN_HEIGHT];
 

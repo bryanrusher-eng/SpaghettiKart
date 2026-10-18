@@ -136,7 +136,9 @@ enum PlayerId {
     PLAYER_EIGHT = 7
 };
 
-#define NUM_PLAYERS 8
+// MAX_PLAYERS: capacidad de los arrays por jugador (online). NUM_PLAYERS: corredores activos en carrera.
+#define MAX_PLAYERS 16
+#define NUM_PLAYERS 16
 
 #define MARIO_SIZE 0.75f
 #define LUIGI_SIZE 0.75f

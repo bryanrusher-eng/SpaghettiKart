@@ -29,39 +29,39 @@
 #include "decode.h"
 #include "port/Game.h"
 
-f32 D_80165210[8];
-f32 D_80165230[8];
-UNUSED f32 D_80165250[8];
-s16 D_80165270[8];
-f32 gPlayerCurrentSpeed[8];
-f32 gPlayerWaterLevel[8];
-s32 D_801652C0[8];
-s32 D_801652E0[8];
-s16 D_80165300[8];
+f32 D_80165210[MAX_PLAYERS];
+f32 D_80165230[MAX_PLAYERS];
+UNUSED f32 D_80165250[MAX_PLAYERS];
+s16 D_80165270[MAX_PLAYERS];
+f32 gPlayerCurrentSpeed[MAX_PLAYERS];
+f32 gPlayerWaterLevel[MAX_PLAYERS];
+s32 D_801652C0[MAX_PLAYERS];
+s32 D_801652E0[MAX_PLAYERS];
+s16 D_80165300[MAX_PLAYERS];
 // Shadows values from gPathIndexByPlayerId, but is an array
-u16 gCopyPathIndexByPlayerId[8];
+u16 gCopyPathIndexByPlayerId[MAX_PLAYERS];
 // Shadows values from gNearestPathPointByPlayerId, but is an array
-s16 gCopyNearestWaypointByPlayerId[8];
-s16 D_80165330[8];
+s16 gCopyNearestWaypointByPlayerId[MAX_PLAYERS];
+s16 D_80165330[MAX_PLAYERS];
 s16 D_80165340;
 UNUSED s32 D_80165348[29];
-Player* D_801653C0[8];
+Player* D_801653C0[MAX_PLAYERS];
 
-bool gPlayerIsThrottleActive[8];
-s32 gPlayerAButtonComboActiveThisFrame[8];
-s32 gFrameSinceLastACombo[8];
-s32 gCountASwitch[8];
-bool gIsPlayerTripleAButtonCombo[8];
-s32 gTimerBoostTripleACombo[8];
+bool gPlayerIsThrottleActive[MAX_PLAYERS];
+s32 gPlayerAButtonComboActiveThisFrame[MAX_PLAYERS];
+s32 gFrameSinceLastACombo[MAX_PLAYERS];
+s32 gCountASwitch[MAX_PLAYERS];
+bool gIsPlayerTripleAButtonCombo[MAX_PLAYERS];
+s32 gTimerBoostTripleACombo[MAX_PLAYERS];
 
-bool gPlayerIsBrakeActive[8];
-s32 gPlayerBButtonComboActiveThisFrame[8];
-s32 gFrameSinceLastBCombo[8];
-s32 gCountBChangement[8];
-bool gIsPlayerTripleBButtonCombo[8];
-s32 gTimerBoostTripleBCombo[8];
+bool gPlayerIsBrakeActive[MAX_PLAYERS];
+s32 gPlayerBButtonComboActiveThisFrame[MAX_PLAYERS];
+s32 gFrameSinceLastBCombo[MAX_PLAYERS];
+s32 gCountBChangement[MAX_PLAYERS];
+bool gIsPlayerTripleBButtonCombo[MAX_PLAYERS];
+s32 gTimerBoostTripleBCombo[MAX_PLAYERS];
 
-s16 chooseCPUPlayers[7];
+s16 chooseCPUPlayers[MAX_PLAYERS];
 
 s16 D_8016556E;
 s16 D_80165570;
@@ -491,12 +491,14 @@ void func_80039AE4(void) {
 void func_80039DA4(void) {
     s32 i;
 
+    // Slot de parrilla por jugador: la primera carrera sale al reves (el ultimo
+    // jugador al frente); despues se ordena por puesto.
     static const s32 sp2C[] = {
-        7, 6, 5, 4, 3, 2, 1, 0,
+        15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
     };
 
     static const s32 spC[] = {
-        0, 1, 2, 3, 4, 5, 6, 7,
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     };
 
     if (((GetCupCursorPosition() == TRACK_ONE) && (D_8016556E == 0)) || (gDemoMode == 1) ||
@@ -516,6 +518,7 @@ UNUSED s16 D_800E43A4 = 1;
 UNUSED s16 D_800E43A8 = 0;
 
 void spawn_players_gp_one_player(f32* arg0, f32* arg1, f32 arg2) {
+    s32 i;
     func_80039DA4();
     if (((GetCupCursorPosition() == TRACK_ONE) && (D_8016556E == 0)) || (gDemoMode == 1) ||
         (gDebugMenuSelection == DEBUG_MENU_OPTION_SELECTED)) {
@@ -539,44 +542,29 @@ void spawn_players_gp_one_player(f32* arg0, f32* arg1, f32 arg2) {
                 chooseCPUPlayers[i] = arr[i];
             }
         }
+        // Solo hay 8 personajes: los CPU extra (online) repiten los de los otros CPU.
+        for (i = 7; i < NUM_PLAYERS - 1; i++) {
+            chooseCPUPlayers[i] = chooseCPUPlayers[i - 7];
+        }
     }
 
     D_8016556E = 0;
     if (gDemoMode == 1) {
-        spawn_player(gPlayerOne, 0, arg0[D_80165270[0]], arg1[D_80165270[0]], arg2, 32768.0f, gCharacterSelections[0],
-                     (PLAYER_HUMAN_AND_CPU));
-        spawn_player(gPlayerTwo, 1, arg0[D_80165270[1]], arg1[D_80165270[1]], arg2, 32768.0f, chooseCPUPlayers[0],
-                     (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
-        spawn_player(gPlayerThree, 2, arg0[D_80165270[2]], arg1[D_80165270[2]], arg2, 32768.0f, chooseCPUPlayers[1],
-                     (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
-        spawn_player(gPlayerFour, 3, arg0[D_80165270[3]], arg1[D_80165270[3]], arg2, 32768.0f, chooseCPUPlayers[2],
-                     (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
-        spawn_player(gPlayerFive, 4, arg0[D_80165270[4]], arg1[D_80165270[4]], arg2, 32768.0f, chooseCPUPlayers[3],
-                     (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
-        spawn_player(gPlayerSix, 5, arg0[D_80165270[5]], arg1[D_80165270[5]], arg2, 32768.0f, chooseCPUPlayers[4],
-                     (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
-        spawn_player(gPlayerSeven, 6, arg0[D_80165270[6]], arg1[D_80165270[6]], arg2, 32768.0f, chooseCPUPlayers[5],
-                     (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
-        spawn_player(gPlayerEight, 7, arg0[D_80165270[7]], arg1[D_80165270[7]], arg2, 32768.0f, chooseCPUPlayers[6],
-                     (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            spawn_player(&gPlayers[i], i, arg0[D_80165270[i]], arg1[D_80165270[i]], arg2, 32768.0f,
+                         (i == 0) ? gCharacterSelections[0] : chooseCPUPlayers[i - 1],
+                         (i == 0) ? (PLAYER_HUMAN_AND_CPU) : (PLAYER_EXISTS | PLAYER_CPU | PLAYER_START_SEQUENCE));
+        }
         D_80164A28 = 0;
     } else {
-        spawn_player(gPlayerOne, 0, arg0[D_80165270[0]], arg1[D_80165270[0]] + 250.0f, arg2, 32768.0f,
-                     gCharacterSelections[0], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_HUMAN));
-        spawn_player(gPlayerTwo, 1, arg0[D_80165270[1]], arg1[D_80165270[1]] + 250.0f, arg2, 32768.0f,
-                     chooseCPUPlayers[0], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_CPU));
-        spawn_player(gPlayerThree, 2, arg0[D_80165270[3]], arg1[D_80165270[2]] + 250.0f, arg2, 32768.0f,
-                     chooseCPUPlayers[1], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_CPU));
-        spawn_player(gPlayerFour, 3, arg0[D_80165270[2]], arg1[D_80165270[3]] + 250.0f, arg2, 32768.0f,
-                     chooseCPUPlayers[2], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_CPU));
-        spawn_player(gPlayerFive, 4, arg0[D_80165270[5]], arg1[D_80165270[4]] + 250.0f, arg2, 32768.0f,
-                     chooseCPUPlayers[3], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_CPU));
-        spawn_player(gPlayerSix, 5, arg0[D_80165270[4]], arg1[D_80165270[5]] + 250.0f, arg2, 32768.0f,
-                     chooseCPUPlayers[4], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_CPU));
-        spawn_player(gPlayerSeven, 6, arg0[D_80165270[7]], arg1[D_80165270[6]] + 250.0f, arg2, 32768.0f,
-                     chooseCPUPlayers[5], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_CPU));
-        spawn_player(gPlayerEight, 7, arg0[D_80165270[6]], arg1[D_80165270[7]] + 250.0f, arg2, 32768.0f,
-                     chooseCPUPlayers[6], (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE | PLAYER_CPU));
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            // A partir del tercer kart, cada pareja intercambia la columna (como en el juego original).
+            s32 columnSlot = (i >= 2) ? (i ^ 1) : i;
+            spawn_player(&gPlayers[i], i, arg0[D_80165270[columnSlot]], arg1[D_80165270[i]] + 250.0f, arg2, 32768.0f,
+                         (i == 0) ? gCharacterSelections[0] : chooseCPUPlayers[i - 1],
+                         (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE |
+                          ((i == 0) ? PLAYER_HUMAN : PLAYER_CPU)));
+        }
         D_80164A28 = 1;
     }
     func_80039AE4();
@@ -906,19 +894,16 @@ void spawn_and_set_player_spawns(void) {
         switch (gActiveScreenMode) {
             case SCREEN_MODE_1P:
                 switch (gModeSelection) {
-                    case GRAND_PRIX:
-                        D_80165210[0] = (D_80165210[2] = (D_80165210[4] = (D_80165210[6] = sp5E + 0x14)));
-                        D_80165210[1] = (D_80165210[3] = (D_80165210[5] = (D_80165210[7] = sp5E - 0x14)));
-                        D_80165230[0] = sp5C + 0x1E;
-                        D_80165230[1] = sp5C + 0x32;
-                        D_80165230[2] = sp5C + 0x46;
-                        D_80165230[3] = sp5C + 0x5A;
-                        D_80165230[4] = sp5C + 0x6E;
-                        D_80165230[5] = sp5C + 0x82;
-                        D_80165230[6] = sp5C + 0x96;
-                        D_80165230[7] = sp5C + 0xAA;
+                    case GRAND_PRIX: {
+                        s32 slot;
+                        // Dos columnas (x +-20) y una fila cada 20 unidades, una por kart.
+                        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+                            D_80165210[slot] = sp5E + (((slot & 1) == 0) ? 0x14 : -0x14);
+                            D_80165230[slot] = sp5C + 0x1E + (0x14 * slot);
+                        }
                         spawn_players_gp_one_player(D_80165210, D_80165230, sp5A);
                         break;
+                    }
 
                     case TIME_TRIALS:
                         D_80165210[0] = (D_80165210[2] = (D_80165210[4] = (D_80165210[6] = sp5E)));
@@ -939,19 +924,16 @@ void spawn_and_set_player_spawns(void) {
             case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
             case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
                 switch (gModeSelection) {
-                    case GRAND_PRIX:
-                        D_80165210[0] = (D_80165210[2] = (D_80165210[4] = (D_80165210[6] = sp5E + 0x14)));
-                        D_80165210[1] = (D_80165210[3] = (D_80165210[5] = (D_80165210[7] = sp5E - 0x14)));
-                        D_80165230[0] = sp5C + 0x1E;
-                        D_80165230[1] = sp5C + 0x32;
-                        D_80165230[2] = sp5C + 0x46;
-                        D_80165230[3] = sp5C + 0x5A;
-                        D_80165230[4] = sp5C + 0x6E;
-                        D_80165230[5] = sp5C + 0x82;
-                        D_80165230[6] = sp5C + 0x96;
-                        D_80165230[7] = sp5C + 0xAA;
+                    case GRAND_PRIX: {
+                        s32 slot;
+                        // Dos columnas (x +-20) y una fila cada 20 unidades, una por kart.
+                        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+                            D_80165210[slot] = sp5E + (((slot & 1) == 0) ? 0x14 : -0x14);
+                            D_80165230[slot] = sp5C + 0x1E + (0x14 * slot);
+                        }
                         spawn_players_gp_two_player(D_80165210, D_80165230, sp5A);
                         break;
+                    }
 
                     case VERSUS:
                         D_80165210[0] = (D_80165210[2] = (D_80165210[4] = (D_80165210[6] = sp5E + 0xA)));

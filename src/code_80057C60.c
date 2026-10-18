@@ -79,7 +79,7 @@ u32 D_80165638;
 UNUSED s32 D_80165640[2];
 u32 D_80165648;
 UNUSED u32 D_80165650[2];
-u32 D_80165658[8];
+u32 D_80165658[MAX_PLAYERS];
 s32 D_80165678;
 UNUSED s32 D_80165680[12];
 u16 D_801656B0;
@@ -139,7 +139,7 @@ UNUSED s8 D_801657B3;
 s8 D_801657B4;
 s8 D_801657B8[16];
 s8 D_801657C8;
-s8 D_801657D0[8];
+s8 D_801657D0[MAX_PLAYERS];
 s8 D_801657D8;
 UNUSED s16 D_801657DA[2];
 UNUSED s8 D_801657E0;
@@ -252,7 +252,7 @@ Vec3f D_80183E70;
 s32 gNextFreeLeafParticle;
 Vec3su D_80183E80;
 //! Appears to be a list of object list indices for the Item Window part of the HUD
-s32 gItemWindowObjectByPlayerId[8];
+s32 gItemWindowObjectByPlayerId[MAX_PLAYERS];
 Vec3su D_80183E98;
 /**
  * Snowmen bodies in FrappeSnowland
@@ -337,7 +337,7 @@ hud_player playerHUD[4];
  * Also used for snowflakes like gObjectParticle1? Not sure what's up with that
  */
 s32 D_8018CC80[D_8018CC80_SIZE];
-struct_D_8018CE10 D_8018CE10[8];
+struct_D_8018CE10 D_8018CE10[MAX_PLAYERS];
 //! Unknown object index, only set for Kalimari Desert, never read
 s32 D_8018CF10;
 Camera* D_8018CF14;
@@ -345,20 +345,20 @@ s16 D_8018CF18;
 Player* D_8018CF1C;
 s16 D_8018CF20;
 UNUSED s32 D_8018CF24;
-Player* D_8018CF28[8];
+Player* D_8018CF28[MAX_PLAYERS];
 s16 D_8018CF48;
-s16 D_8018CF50[8];
+s16 D_8018CF50[MAX_PLAYERS];
 s16 D_8018CF60;
 //! This may be a list of tilemap flags on a per-camera basis
-s16 D_8018CF68[8];
+s16 D_8018CF68[MAX_PLAYERS];
 s16 D_8018CF78;
 /**
  * List of half-word character IDs indicating each character's
  * place in the current Grand Prix race's standings
  */
-s16 gGPCurrentRaceCharacterIdByRank[8];
+s16 gGPCurrentRaceCharacterIdByRank[MAX_PLAYERS];
 s16 D_8018CF90;
-s16 D_8018CF98[8];
+s16 D_8018CF98[MAX_PLAYERS];
 s16 D_8018CFA8;
 s8 D_8018CFAC[4];
 s16 D_8018CFB0;
@@ -6535,6 +6535,9 @@ void func_8006E058(void) {
                     func_8006E420(gPlayerSix, 5, 0);
                     func_8006E420(gPlayerSeven, 6, 0);
                     func_8006E420(gPlayerEight, 7, 0);
+                    for (s32 extra = 8; extra < NUM_PLAYERS; extra++) {
+                        func_8006E420(&gPlayers[extra], extra, 0);
+                    }
 
                     break;
                 case TIME_TRIALS:
@@ -6580,6 +6583,9 @@ void func_8006E058(void) {
                     func_8006E420(gPlayerSix, 5, 0);
                     func_8006E420(gPlayerSeven, 6, 0);
                     func_8006E420(gPlayerEight, 7, 0);
+                    for (s32 extra = 8; extra < NUM_PLAYERS; extra++) {
+                        func_8006E420(&gPlayers[extra], extra, 0);
+                    }
 
                     break;
                 case VERSUS:

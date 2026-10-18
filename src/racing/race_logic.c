@@ -1199,7 +1199,7 @@ void func_802909F0(void) {
     s32 i;
     s32 k;
 
-    for (i = 0; i < 7; i++) {
+    for (i = 0; i < NUM_PLAYERS - 1; i++) {
         ply = &gPlayers[i];
 
         if ((ply->type & PLAYER_EXISTS) && (!(ply->effects & 0x80000000)) &&

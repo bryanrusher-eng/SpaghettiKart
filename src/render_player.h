@@ -1,6 +1,7 @@
 #ifndef RENDER_PLAYER_H
 #define RENDER_PLAYER_H
 
+#include <defines.h>
 #include <common_structs.h>
 #include "buffers.h"
 #include "camera.h"
@@ -81,6 +82,7 @@ extern s32 gPlayerStarEffectStartTime[];
 extern s32 gPlayersToRenderCount;
 extern void* D_800DDB5C[];
 extern Vtx* gPlayerVtx[];
+void init_extra_player_vtx(void);
 extern f32 gCharacterSize[];
 extern s32 D_800DDE74[];
 extern Vtx D_800E51D0[];
@@ -266,11 +268,11 @@ extern u8* gKartWario189Wheel0[];
 
 extern s16 D_80165020[40];
 // Used to calculate difference between previous and current player velocity.
-extern Vec3f gPlayerLastVelocity[8];
-extern s16 gLastAnimFrameSelector[4][8];
-extern s16 gLastAnimGroupSelector[4][8];
-extern s16 D_80165150[4][8];
-extern s16 D_80165190[4][8];
-extern s16 D_801651D0[4][8];
+extern Vec3f gPlayerLastVelocity[MAX_PLAYERS];
+extern s16 gLastAnimFrameSelector[4][MAX_PLAYERS];
+extern s16 gLastAnimGroupSelector[4][MAX_PLAYERS];
+extern s16 D_80165150[4][MAX_PLAYERS];
+extern s16 D_80165190[4][MAX_PLAYERS];
+extern s16 D_801651D0[4][MAX_PLAYERS];
 
 #endif // RENDER_PLAYER_H

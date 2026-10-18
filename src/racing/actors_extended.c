@@ -858,7 +858,7 @@ s32 use_banana_item(Player* player) {
     Vec3f startingPos;
 
     playerId = player - gPlayerOne;
-    if (playerId >= 8) {
+    if (playerId >= NUM_PLAYERS) {
         return -1;
     }
     // Extremely weird fake match to fix a tiny stack difference

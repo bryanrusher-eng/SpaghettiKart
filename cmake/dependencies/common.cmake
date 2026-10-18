@@ -49,6 +49,11 @@ add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 add_dependencies(${PROJECT_NAME} libultraship)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
 
+# Red del modo online (sockets UDP de winsock)
+if(WIN32)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
+endif()
+
 # Torch
 option(USE_STANDALONE "Build as a standalone executable" OFF)
 option(BUILD_STORMLIB "Build with StormLib support" OFF)

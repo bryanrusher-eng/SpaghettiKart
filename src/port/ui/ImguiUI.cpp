@@ -2,6 +2,7 @@
 #include "UIWidgets.h"
 #include "ResolutionEditor.h"
 #include "FreecamWindow.h"
+#include "OnlineWindow.h"
 #include "Tools.h"
 #include "SceneExplorer.h"
 #include "Properties.h"
@@ -39,6 +40,7 @@ std::shared_ptr<Ship::GuiWindow> mSceneExplorerWindow;
 std::shared_ptr<Ship::GuiWindow> mPropertiesWindow;
 std::shared_ptr<Ship::GuiWindow> mTrackPropertiesWindow;
 std::shared_ptr<Ship::GuiWindow> mContentBrowserWindow;
+std::shared_ptr<Ship::GuiWindow> mOnlineWindow;
 
 void SetupGuiElements() {
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
@@ -86,6 +88,9 @@ void SetupGuiElements() {
     mContentBrowserWindow =
         std::make_shared<TrackEditor::ContentBrowserWindow>("gEditorEnabled", "Content Browser");
     gui->AddGuiWindow(mContentBrowserWindow);
+
+    mOnlineWindow = std::make_shared<Online::OnlineWindow>("gOnlineWindowEnabled", "Online");
+    gui->AddGuiWindow(mOnlineWindow);
 }
 
 void Destroy() {
@@ -97,6 +102,7 @@ void Destroy() {
     mPropertiesWindow = nullptr;
     mTrackPropertiesWindow = nullptr;
     mContentBrowserWindow = nullptr;
+    mOnlineWindow = nullptr;
 }
 
 std::string GetWindowButtonText(const char* text, bool menuOpen) {

@@ -24,6 +24,9 @@
 #include "spawn_players.h"
 #include "port/Game.h"
 
+// Abre la ventana Online (port/ui/OnlineWindow.cpp).
+extern void Online_OpenMenu(void);
+
 /** BSS **/
 s32 gIntroModelZEye;
 f32 gIntroModelScale; // XYZ scale on checkerboard flag, Z scale on intro logo
@@ -1361,6 +1364,10 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                     gMainMenuSelection = MAIN_MENU_DATA;
                     func_8009E258();
                     play_sound2(SOUND_MENU_DATA);
+                    newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
+                } else if (btnAndStick & CONT_G) { // Z: abre la sala online
+                    play_sound2(SOUND_MENU_SELECT);
+                    Online_OpenMenu();
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];
                 } else {
                     newMode = gGameModePlayerSelection[gPlayerCount - 1][gGameModeMenuColumn[gPlayerCount - 1]];

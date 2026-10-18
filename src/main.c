@@ -61,7 +61,7 @@ struct SPTask* sCurrentDisplaySPTask = NULL;
 struct SPTask* sNextAudioSPTask = NULL;
 struct SPTask* sNextDisplaySPTask = NULL;
 
-struct Controller gControllers[NUM_PLAYERS];
+struct Controller gControllers[MAX_PLAYERS];
 struct Controller* gControllerOne = &gControllers[0];
 struct Controller* gControllerTwo = &gControllers[1];
 struct Controller* gControllerThree = &gControllers[2];
@@ -71,7 +71,7 @@ struct Controller* gControllerSix = &gControllers[5];
 struct Controller* gControllerSeven = &gControllers[6];
 struct Controller* gControllerEight = &gControllers[7];
 
-Player gPlayers[NUM_PLAYERS];
+Player gPlayers[MAX_PLAYERS];
 Player* gPlayerOne = &gPlayers[0];
 Player* gPlayerTwo = &gPlayers[1];
 Player* gPlayerThree = &gPlayers[2];
@@ -189,7 +189,7 @@ u16 sRenderedFramebuffer = 0;
 u16 sRenderingFramebuffer = 0;
 UNUSED u16 D_800DC564 = 0;
 s32 D_800DC568 = 0;
-s32 D_800DC56C[8] = { 0 };
+s32 D_800DC56C[MAX_PLAYERS] = { 0 };
 s16 sNumVBlanks = 0;
 UNUSED s16 D_800DC590 = 0;
 f32 gVBlankTimer = 0.0f;

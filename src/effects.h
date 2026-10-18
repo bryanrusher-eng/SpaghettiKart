@@ -1,6 +1,7 @@
 #ifndef EFFECTS_H
 #define EFFECTS_H
 
+#include <defines.h>
 #include <common_structs.h>
 
 /* Function Prototypes */
@@ -140,7 +141,7 @@ extern f32 D_800E37B0[];
 extern f32 D_800E3790[];
 extern f32 D_800E37D0[];
 extern f32 D_800E37F0[];
-extern s16 D_80165190[4][8];
+extern s16 D_80165190[4][MAX_PLAYERS];
 extern f32 gPlayerCurrentSpeed[];
 extern s32 gFrameSinceLastACombo[];
 

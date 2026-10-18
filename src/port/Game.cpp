@@ -1,3 +1,4 @@
+#include "port/net/Net.h"
 #include <libultraship.h>
 #include <typeinfo>
 
@@ -987,6 +988,7 @@ void push_frame() {
     ApplyPendingReset();
     GameEngine::StartAudioFrame();
     GameEngine::Instance->StartFrame();
+    Net::Tick();
     thread5_iteration();
     GameEngine::EndAudioFrame();
     // thread5_game_loop();

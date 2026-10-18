@@ -39,6 +39,10 @@ bool RandomItemTable::Add(const std::string& resourceName, uint32_t rank, uint32
 }
 
 uint8_t RandomItemTable::Roll(uint32_t rank) const {
+    // Las tablas se definen para 8 puestos; del 9o en adelante usan la del ultimo definido.
+    if (!mTable.empty() && rank >= mTable.size()) {
+        rank = static_cast<uint32_t>(mTable.size() - 1);
+    }
     if (rank >= mTable.size()) {
         printf("[ItemTables] [Roll] Invalid rank input %d. Giving player a none item\n", rank);
         return ITEM_NONE;

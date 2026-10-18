@@ -137,7 +137,7 @@ u16 D_8015F890;
 u16 D_8015F892;
 u16 D_8015F894;
 // Indexed by Player ID. Track time in seconds since player has last crossed the finish line
-f32 gTimePlayerLastTouchedFinishLine[NUM_PLAYERS];
+f32 gTimePlayerLastTouchedFinishLine[MAX_PLAYERS];
 
 u8* gNmiUnknown1;
 u8* gNmiUnknown2;
@@ -152,7 +152,7 @@ s32 D_8015F8DC;
 s32 D_8015F8E0;
 f32 gWaterLevel;
 f32 gWaterVelocity;
-s16 gPlayerPositionLUT[8]; // Player index at each position
+s16 gPlayerPositionLUT[MAX_PLAYERS]; // Player index at each position
 u16 gNumPermanentActors;
 //s32 code_800029B0_bss_pad2[44];
 

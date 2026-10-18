@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <defines.h>
 #include <common_structs.h>
 #include "objects.h"
 #include "camera.h"
@@ -602,7 +603,7 @@ extern u8* gTextureLoadedLightningBolt1;
 extern Vec3f gPlayerBalloonPosX[];
 extern Vec3f gPlayerBalloonPosY[];
 extern Vec3f gPlayerBalloonPosZ[];
-extern u16 gPlayerBalloonStatus[8][3];
+extern u16 gPlayerBalloonStatus[MAX_PLAYERS][3];
 extern Vec3s D_8018D620[];
 extern Vec3f D_8018D650[];
 extern Vec3f D_8018D6B0[];
