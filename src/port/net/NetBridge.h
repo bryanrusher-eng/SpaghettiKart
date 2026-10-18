@@ -33,6 +33,8 @@ void NetBridge_Submit(unsigned int tick, unsigned short buttons, signed char sti
 int NetBridge_GetFrame(unsigned int tick, unsigned short buttons[16], signed char stickX[16], signed char stickY[16]);
 // Nombre del jugador de un slot ("" si no hay nadie).
 const char* NetBridge_SlotName(int slot);
+// Slots que ya salieron de la carrera (bit por slot).
+unsigned NetBridge_DroppedMask(void);
 
 #ifdef __cplusplus
 }

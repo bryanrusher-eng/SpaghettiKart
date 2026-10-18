@@ -88,9 +88,6 @@ void DrawShadowText(ImDrawList* dl, ImFont* font, float size, ImVec2 pos, ImU32 
 void OverlayWindow::DrawElement() {
     OnlineViewData v;
     int have = online_get_view_data(&v);
-    if (!have) {
-        return;
-    }
     std::vector<Net::PeerInfo> peers = Net::GetPeers();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     ImFont* font = ImGui::GetFont();
@@ -98,6 +95,29 @@ void OverlayWindow::DrawElement() {
     // Con viewports multiples, ImGui dibuja en coordenadas de PANTALLA: hay que sumar la posicion de la ventana.
     const ImVec2 org = ImGui::GetMainViewport()->Pos;
 
+    // --- leyenda: "X salio de la partida" (unos segundos) ---
+    {
+        std::vector<Net::LeftInfo> left = Net::GetLeftEvents();
+        auto vpl = GetInterpreter()->mGameWindowViewport;
+        float vwl = static_cast<float>(OTRGetGameViewportWidth());
+        float vhl = static_cast<float>(OTRGetGameViewportHeight());
+        float sizeL = baseSize * 1.3f;
+        float yL = org.y + static_cast<float>(vpl.y) + vhl * 0.22f;
+        for (const Net::LeftInfo& e : left) {
+            if (e.ageMs > 7000) continue;
+            std::string msg = e.name + " sali\xC3\xB3 de la partida";
+            ImVec2 tsL = font->CalcTextSizeA(sizeL, 10000.0f, 0.0f, msg.c_str());
+            float xL = org.x + static_cast<float>(vpl.x) + (vwl - tsL.x) * 0.5f;
+            float alpha = e.ageMs > 6000 ? (7000 - e.ageMs) / 1000.0f : 1.0f;
+            dl->AddRectFilled(ImVec2(xL - 10, yL - 4), ImVec2(xL + tsL.x + 10, yL + tsL.y + 4),
+                              IM_COL32(0, 0, 0, static_cast<int>(170 * alpha)), 6.0f);
+            dl->AddText(font, sizeL, ImVec2(xL, yL), IM_COL32(255, 120, 100, static_cast<int>(255 * alpha)), msg.c_str());
+            yL += tsL.y + 10;
+        }
+    }
+    if (!have) {
+        return; // sin carrera en red no hay nombres ni tabla
+    }
     // --- nombre sobre cada kart humano (menos el propio) ---
     for (int slot = 0; slot < v.numKarts; slot++) {
         if (slot == v.localSlot || !v.kart[slot].human) continue;

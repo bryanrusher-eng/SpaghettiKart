@@ -56,6 +56,7 @@ enum PacketType : uint8_t {
     PKT_INPUT = 10,       // cliente -> host: mandos de los proximos ticks + confirmacion
     PKT_FRAME = 11,       // host -> clientes: mandos de todos para uno o varios ticks
     PKT_CHARACTER = 12,   // cliente -> host: cambio de personaje
+    PKT_LEFT = 13,        // host -> clientes: un jugador salio de la carrera
 };
 
 // Protocolo del servidor de rele (ver server/relay_server.py)
@@ -70,6 +71,7 @@ constexpr uint64_t kRelayRetryMs = 500;
 
 constexpr uint64_t kPingIntervalMs = 1000;
 constexpr uint64_t kTimeoutMs = 6000;
+constexpr uint64_t kStallMs = 1000; // en carrera: un jugador callado mas de esto deja de bloquear a los demas
 constexpr uint64_t kHelloRetryMs = 500;
 constexpr uint64_t kConnectTimeoutMs = 10000;
 constexpr size_t kMaxLogLines = 200;
@@ -118,6 +120,7 @@ struct Peer {
     uint64_t lastPingSent = 0;
     uint32_t ping = 0;
     int character = 0;
+    uint64_t lastInput = 0; // ultima vez que llegaron mandos de este jugador en carrera
 };
 
 enum class ClientState { Idle, Connecting, Connected };
@@ -130,6 +133,22 @@ std::string g_status = "Desconectado";
 std::vector<std::string> g_log;
 std::string g_myName;
 int g_myCharacter = 0; // personaje del jugador local
+
+// Avisos "X salio de la partida"
+struct LeftEvent {
+    int slot;
+    std::string name;
+    uint64_t at;
+};
+std::vector<LeftEvent> g_leftEvents;
+uint16_t g_droppedMask = 0;
+struct PendingLeft {
+    int slot;
+    std::string name;
+    uint64_t nextSend;
+    int sends;
+};
+std::vector<PendingLeft> g_pendingLeft; // host: avisos que se repiten unas veces por si se pierde el paquete
 int g_maxPlayers = kMaxPlayers; // sala: maximo de jugadores (host lo elige; cliente lo recibe)
 
 // Host
@@ -466,6 +485,22 @@ void HostBroadcastFrame(uint32_t tick) {
     for (auto& kv : g_peers) SendFrames(kv.second, tick);
 }
 
+// Anota que un jugador salio de la carrera (una sola vez por slot).
+void AddLeft(int slot, const std::string& name) {
+    if (slot < 0 || slot >= kMaxPlayers) return;
+    if (g_droppedMask & (1u << slot)) return;
+    g_droppedMask |= static_cast<uint16_t>(1u << slot);
+    g_leftEvents.push_back({ slot, name, NowMs() });
+    Log(name + " salio de la partida");
+}
+
+// Host: un humano se fue (BYE o sin respuesta). Si hay carrera, se avisa a todos.
+void HostPlayerLeft(const Peer& p) {
+    if (!(g_race.active || g_race.pending) || !(g_race.humanMask & (1u << p.slot))) return;
+    AddLeft(p.slot, p.name);
+    g_pendingLeft.push_back({ p.slot, p.name, 0, 0 });
+}
+
 // Host: completa todos los ticks para los que ya estan los mandos de cada humano.
 void HostTryComplete() {
     if (!g_race.active) return;
@@ -484,7 +519,20 @@ void HostTryComplete() {
             if (g_race.inputTick[i][s] == t) {
                 pads[s] = g_race.inputs[i][s];
             } else {
-                ok = false;
+                // Si ya estaba jugando y lleva mas de 1 s sin mandar nada, se sigue sin esperarlo (mando neutro):
+                // asi un jugador con mala conexion o que se fue no traba a los demas. Si vuelve, sus mandos
+                // nuevos se aceptan otra vez.
+                bool stalled = false;
+                for (auto& kv : g_peers) {
+                    if (kv.second.slot == s && kv.second.lastInput != 0 && NowMs() - kv.second.lastInput > kStallMs) {
+                        stalled = true;
+                    }
+                }
+                if (stalled) {
+                    pads[s] = Pad();
+                } else {
+                    ok = false;
+                }
             }
         }
         if (!ok) break;
@@ -573,6 +621,7 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
         }
         case PKT_BYE:
             Log(p.name + " salio de la sala");
+            HostPlayerLeft(p);
             g_peers.erase(it);
             g_rosterDirty = true;
             break;
@@ -592,6 +641,7 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
                 g_race.started[p.slot] = true;
                 break;
             }
+            p.lastInput = now;
             uint32_t ack = r.u32();
             uint32_t firstTick = r.u32();
             int count = r.u8();
@@ -665,7 +715,20 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             if (r.ok) g_roster = list;
             break;
         }
+        case PKT_LEFT: {
+            int slot = r.u8();
+            std::string name = r.str();
+            if (r.ok && g_race.active) AddLeft(slot, name);
+            break;
+        }
         case PKT_BYE:
+            if (g_race.active) {
+                std::string hostName = "El anfitrion";
+                for (const PeerInfo& pi : g_roster) {
+                    if (pi.slot == 0) hostName = pi.name;
+                }
+                AddLeft(0, hostName);
+            }
             SetStatus("El anfitrion cerro la sala");
             CloseSock(g_sock);
             g_sock = kInvalidSock;
@@ -1152,12 +1215,25 @@ void Tick() {
         }
         for (auto& k : dead) {
             Log(g_peers[k].name + " perdio la conexion");
+            HostPlayerLeft(g_peers[k]);
             g_peers.erase(k);
             g_rosterDirty = true;
         }
         if (g_rosterDirty || now - g_lastRoster >= 1000) {
             BroadcastRoster();
         }
+        for (auto it = g_pendingLeft.begin(); it != g_pendingLeft.end();) {
+            if (now >= it->nextSend) {
+                Writer w = Begin(PKT_LEFT);
+                w.u8(static_cast<uint8_t>(it->slot));
+                w.str(it->name);
+                for (auto& kv : g_peers) SendTo(kv.second.addr, w);
+                it->nextSend = now + 400;
+                it->sends++;
+            }
+            it = (it->sends >= 4) ? g_pendingLeft.erase(it) : it + 1;
+        }
+        if (g_race.active) HostTryComplete(); // por si un jugador callado ya paso de 1 s
         if (!dead.empty() || !g_peers.empty()) {
             g_status = (g_viaRelay ? "Sala " + g_roomCode + ": " : std::string("Sala activa: ")) +
                        std::to_string(g_peers.size() + 1) + " jugador(es)";
@@ -1177,6 +1253,13 @@ void Tick() {
             if (now - g_lastHello >= kHelloRetryMs) SendHello();
         } else if (g_cstate == ClientState::Connected) {
             if (now - g_lastRecv > kTimeoutMs) {
+                if (g_race.active) {
+                    std::string hostName = "El anfitrion";
+                    for (const PeerInfo& pi : g_roster) {
+                        if (pi.slot == 0) hostName = pi.name;
+                    }
+                    AddLeft(0, hostName);
+                }
                 SetStatus("Se perdio la conexion con el anfitrion");
                 CloseSock(g_sock);
                 g_sock = kInvalidSock;
@@ -1276,6 +1359,9 @@ void RaceBegin() {
     g_race.starting = starting;
     g_race.received = received;
     std::memcpy(g_race.started, started, sizeof(started));
+    g_leftEvents.clear();
+    g_pendingLeft.clear();
+    g_droppedMask = 0;
     g_race.active = true;
     g_race.delay = std::max<int>(1, std::min<int>(params.delay, 12));
     g_race.humanMask = 0;
@@ -1305,6 +1391,15 @@ void RaceEnd() {
 bool RaceActive() { return g_race.active; }
 
 bool RaceBusy() { return g_race.active || g_race.pending || g_race.starting; }
+
+std::vector<LeftInfo> GetLeftEvents() {
+    std::vector<LeftInfo> r;
+    uint64_t now = NowMs();
+    for (const LeftEvent& e : g_leftEvents) r.push_back({ e.name, now - e.at });
+    return r;
+}
+
+uint16_t RaceDroppedMask() { return g_droppedMask; }
 
 uint16_t RaceHumanMask() { return g_race.humanMask; }
 

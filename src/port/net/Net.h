@@ -96,6 +96,14 @@ void RaceBegin();
 void RaceEnd();
 bool RaceActive();
 bool RaceBusy(); // carrera cargandose o en marcha
+
+// Jugadores que salieron durante la carrera (para la leyenda "X salio de la partida").
+struct LeftInfo {
+    std::string name;
+    uint64_t ageMs; // hace cuanto salio
+};
+std::vector<LeftInfo> GetLeftEvents();
+uint16_t RaceDroppedMask(); // bit por slot de los que ya no estan
 uint16_t RaceHumanMask();
 int RaceDelay();
 // Mando local para el tick indicado (tick actual + delay).

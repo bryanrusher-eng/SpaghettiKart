@@ -204,6 +204,10 @@ void online_apply_pads(void) {
     // Esperar a tener los mandos de todos los humanos para este tick.
     while (!NetBridge_GetFrame(sTick, buttons, (signed char*) stickX, (signed char*) stickY)) {
         NetBridge_Pump();
+        if (!NetBridge_RaceActive()) {
+            // el anfitrion se fue o se cerro la sala: se sale de la carrera en red al instante
+            spins = 1000000;
+        }
         // Al principio hay que dar tiempo a que todas las PCs terminen de cargar la pista (hasta ~2 min);
         // ya en carrera, ~20 s sin noticias y se abandona la carrera en red.
         if (++spins > (sTick < 120 ? 120000 : 20000)) {
@@ -280,7 +284,7 @@ int online_get_view_data(OnlineViewData* out) {
         Player* p = &gPlayers[i];
         int lap = gLapCountByPlayerId[i] + 1;
         out->rankPlayer[i] = gGPCurrentRacePlayerIdByRank[i];
-        out->kart[i].human = online_slot_is_human(i);
+        out->kart[i].human = online_slot_is_human(i) && !((NetBridge_DroppedMask() >> i) & 1);
         out->kart[i].character = p->characterId;
         out->kart[i].rank = gGPCurrentRaceRankByPlayerId[i];
         out->kart[i].lap = lap < 1 ? 1 : (lap > 3 ? 3 : lap);

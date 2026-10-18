@@ -47,6 +47,8 @@ int NetBridge_RaceDelay(void) { return Net::RaceDelay(); }
 
 int NetBridge_LocalSlot(void) { return Net::GetLocalSlot(); }
 
+unsigned NetBridge_DroppedMask(void) { return Net::RaceDroppedMask(); }
+
 void NetBridge_Pump(void) {
     Net::Tick();
 #ifdef _WIN32
