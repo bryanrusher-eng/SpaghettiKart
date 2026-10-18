@@ -32,6 +32,30 @@ typedef struct OnlineMenuInfo {
 
 void OnlineMenu_GetInfo(OnlineMenuInfo* out);
 
+// Busqueda de salas en el servidor (pantalla "UNIRSE A SALA").
+typedef struct OnlineMenuRoom {
+    char code[8];
+    char name[32];
+    int players;
+    int maxPlayers;
+    int racing; // carrera en curso
+} OnlineMenuRoom;
+
+typedef struct OnlineMenuRooms {
+    int state; // 0 = sin busqueda, 1 = buscando, 2 = lista lista, 3 = fallo (ver error)
+    int count;
+    OnlineMenuRoom rooms[20];
+    char error[96];
+    char server[64]; // direccion del servidor, para mostrarla
+} OnlineMenuRooms;
+
+void OnlineMenu_RoomsStart(void);
+void OnlineMenu_RoomsStop(void);
+void OnlineMenu_GetRooms(OnlineMenuRooms* out);
+// Si la sala que se crea sale en la lista (se guarda en CVars).
+int OnlineMenu_GetRoomVisible(void);
+void OnlineMenu_SetRoomVisible(int visible);
+
 // Ajustes guardados (CVars gOnline.*).
 void OnlineMenu_GetName(char* out, int size);
 void OnlineMenu_SetName(const char* name);

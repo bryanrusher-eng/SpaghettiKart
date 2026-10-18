@@ -5,6 +5,7 @@
 #include <mk64.h>
 #include <sounds.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "audio/external.h"
@@ -24,13 +25,14 @@
 // Menu Online nativo. Todo el texto va en MAYUSCULAS sin acentos porque la fuente del juego solo trae A-Z, 0-9
 // y unos pocos signos.
 
-enum { ST_MAIN, ST_NAME, ST_CODE, ST_LOBBY };
+enum { ST_MAIN, ST_NAME, ST_CODE, ST_LOBBY, ST_BROWSE };
 
-enum { ROW_CREATE, ROW_JOIN, ROW_NAME, ROW_PLAYERS, ROW_EXIT, ROW_COUNT };
+enum { ROW_CREATE, ROW_JOIN, ROW_NAME, ROW_PLAYERS, ROW_VISIBLE, ROW_EXIT, ROW_COUNT };
 enum { LOBBY_PICK, LOBBY_CC, LOBBY_ROWS };
 
 #define NAME_MAX 12
 #define CODE_LEN 5
+#define BROWSE_ROWS 7 // filas de la lista de salas que caben en pantalla
 
 static const char kNameChars[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 static const char kCodeChars[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -47,6 +49,10 @@ static int sCode[CODE_LEN];
 static int sCodePos = 0;
 static int sCc = 1;
 static int sChar = 0;
+static int sVisible = 1;          // la sala que se crea sale en la lista de salas
+static int sBrowseCursor = 0;     // 0 = "escribir codigo"; 1.. = salas de la lista
+static int sBrowseTop = 0;
+static int sJoinedFromBrowse = 0; // si la sala se cierra, se vuelve a la lista
 // Flujo nativo: 0 = ninguno, 1 = anfitrion (SELECT PLAYER y luego elegir pista), 2 = cliente (solo SELECT PLAYER).
 static int sFlow = 0;
 static int sPicking = 0; // despues de una carrera: el anfitrion esta eligiendo la siguiente pista
@@ -88,6 +94,7 @@ void online_menu_open(void) {
 
     sOpen = 1;
     sChar = OnlineMenu_GetCharacter();
+    sVisible = OnlineMenu_GetRoomVisible();
     sState = ST_MAIN;
     sCursor = 0;
     sMsg[0] = 0;
@@ -150,6 +157,11 @@ static void update_main(u16 b) {
             sfx_move();
         }
     }
+    if (sCursor == ROW_VISIBLE && (b & (L_JPAD | R_JPAD))) {
+        sVisible = !sVisible;
+        OnlineMenu_SetRoomVisible(sVisible);
+        sfx_move();
+    }
     if (b & B_BUTTON) {
         play_sound2(SOUND_MENU_GO_BACK);
         sOpen = 0;
@@ -159,6 +171,7 @@ static void update_main(u16 b) {
         switch (sCursor) {
             case ROW_CREATE:
                 sMsg[0] = 0;
+                sJoinedFromBrowse = 0;
                 err = OnlineMenu_Host(sMaxPlayers);
                 if (err != NULL) {
                     set_msg(err);
@@ -170,10 +183,13 @@ static void update_main(u16 b) {
                 }
                 break;
             case ROW_JOIN:
+                // Primero la lista de salas del servidor; desde ahi tambien se puede escribir un codigo.
                 play_sound2(SOUND_MENU_SELECT);
-                sState = ST_CODE;
-                sCodePos = 0;
+                sState = ST_BROWSE;
+                sBrowseCursor = 0;
+                sBrowseTop = 0;
                 sMsg[0] = 0;
+                OnlineMenu_RoomsStart();
                 break;
             case ROW_NAME:
                 play_sound2(SOUND_MENU_SELECT);
@@ -184,6 +200,11 @@ static void update_main(u16 b) {
                 }
                 break;
             case ROW_PLAYERS:
+                break;
+            case ROW_VISIBLE:
+                sVisible = !sVisible;
+                OnlineMenu_SetRoomVisible(sVisible);
+                sfx_move();
                 break;
             case ROW_EXIT:
                 play_sound2(SOUND_MENU_GO_BACK);
@@ -259,8 +280,11 @@ static void update_code(u16 b) {
     }
     if (b & B_BUTTON) {
         play_sound2(SOUND_MENU_GO_BACK);
-        sState = ST_MAIN;
-        sCursor = ROW_JOIN;
+        sState = ST_BROWSE;
+        sBrowseCursor = 0;
+        sBrowseTop = 0;
+        sMsg[0] = 0;
+        OnlineMenu_RoomsStart();
         return;
     }
     if (b & A_BUTTON) {
@@ -273,10 +297,95 @@ static void update_code(u16 b) {
             code[i] = kCodeChars[sCode[i]];
         }
         code[CODE_LEN] = 0;
+        sJoinedFromBrowse = 0;
         err = OnlineMenu_Join(code);
         if (err != NULL) {
             set_msg(err);
             play_sound2(SOUND_MENU_GO_BACK);
+        } else {
+            play_sound2(SOUND_MENU_SELECT);
+            sMsg[0] = 0;
+            sState = ST_LOBBY;
+            sCursor = 0;
+        }
+    }
+}
+
+static void update_browse(u16 b) {
+    OnlineMenuRooms rooms;
+    const OnlineMenuRoom* room;
+    const char* err;
+    int total;
+
+    OnlineMenu_GetRooms(&rooms);
+    total = rooms.count + 1; // la fila 0 es "escribir codigo"
+    {
+        // Pruebas: SK_ONLINE_MENU=browsejoin entra solo a la primera sala libre de la lista.
+        static int autoJoinDone = 0;
+        const char* mode = getenv("SK_ONLINE_MENU");
+        int k;
+
+        if (!autoJoinDone && mode != NULL && strcmp(mode, "browsejoin") == 0 && rooms.state == 2) {
+            for (k = 0; k < rooms.count; k++) {
+                if (!rooms.rooms[k].racing && rooms.rooms[k].players < rooms.rooms[k].maxPlayers) {
+                    sBrowseCursor = k + 1;
+                    b |= A_BUTTON;
+                    autoJoinDone = 1;
+                    break;
+                }
+            }
+        }
+    }
+    if (sBrowseCursor >= total) {
+        sBrowseCursor = total - 1;
+    }
+    if (b & D_JPAD) {
+        sBrowseCursor = (sBrowseCursor + 1) % total;
+        sfx_move();
+    }
+    if (b & U_JPAD) {
+        sBrowseCursor = (sBrowseCursor + total - 1) % total;
+        sfx_move();
+    }
+    if (sBrowseCursor < sBrowseTop) {
+        sBrowseTop = sBrowseCursor;
+    }
+    if (sBrowseCursor >= sBrowseTop + BROWSE_ROWS) {
+        sBrowseTop = sBrowseCursor - BROWSE_ROWS + 1;
+    }
+    if (b & B_BUTTON) {
+        play_sound2(SOUND_MENU_GO_BACK);
+        OnlineMenu_RoomsStop();
+        sState = ST_MAIN;
+        sCursor = ROW_JOIN;
+        sMsg[0] = 0;
+        return;
+    }
+    if (!(b & A_BUTTON)) {
+        return;
+    }
+    if (sBrowseCursor == 0) {
+        play_sound2(SOUND_MENU_SELECT);
+        OnlineMenu_RoomsStop();
+        sState = ST_CODE;
+        sCodePos = 0;
+        sMsg[0] = 0;
+        return;
+    }
+    room = &rooms.rooms[sBrowseCursor - 1];
+    if (room->racing) {
+        set_msg("ESA SALA ESTA EN CARRERA");
+        play_sound2(SOUND_MENU_GO_BACK);
+    } else if (room->players >= room->maxPlayers) {
+        set_msg("ESA SALA ESTA LLENA");
+        play_sound2(SOUND_MENU_GO_BACK);
+    } else {
+        sJoinedFromBrowse = 1;
+        err = OnlineMenu_Join(room->code);
+        if (err != NULL) {
+            set_msg(err);
+            play_sound2(SOUND_MENU_GO_BACK);
+            OnlineMenu_RoomsStart(); // unirse detiene la busqueda: se retoma
         } else {
             play_sound2(SOUND_MENU_SELECT);
             sMsg[0] = 0;
@@ -340,6 +449,30 @@ static void update_lobby(u16 b, const OnlineMenuInfo* info) {
 void online_menu_flow_tick(void) {
     OnlineMenuInfo info;
 
+    {
+        // Pruebas: SK_ONLINE_MENU=main o browse abre el menu Online solo al llegar al GAME SELECT.
+        static int testDone = 0;
+        const char* mode = getenv("SK_ONLINE_MENU");
+
+        if (!testDone && mode != NULL && gMenuSelection == MAIN_MENU && !sOpen && !is_screen_being_faded()) {
+            testDone = 1;
+            online_menu_open();
+            if (strcmp(mode, "imgui") == 0) {
+                extern void Online_OpenMenu(void);
+
+                sOpen = 0;
+                Online_OpenMenu(); // pruebas: ventana ImGui "Online"
+            } else if (strncmp(mode, "browse", 6) == 0) {
+                sState = ST_BROWSE;
+                sBrowseCursor = 0;
+                sBrowseTop = 0;
+                sMsg[0] = 0;
+                OnlineMenu_RoomsStart();
+            } else {
+                sState = ST_MAIN;
+            }
+        }
+    }
     if (sFlow == 0) {
         return;
     }
@@ -442,8 +575,15 @@ void online_menu_update(void) {
         sCursor = 0;
     } else if (info.role == 0 && sState == ST_LOBBY) {
         // la sala se cerro o se perdio la conexion
-        sState = ST_MAIN;
-        sCursor = 0;
+        if (sJoinedFromBrowse) {
+            sState = ST_BROWSE;
+            sBrowseCursor = 0;
+            sBrowseTop = 0;
+            OnlineMenu_RoomsStart();
+        } else {
+            sState = ST_MAIN;
+            sCursor = 0;
+        }
         if (info.status[0] != 0) {
             set_msg(info.status);
         }
@@ -461,6 +601,9 @@ void online_menu_update(void) {
             break;
         case ST_LOBBY:
             update_lobby(b, &info);
+            break;
+        case ST_BROWSE:
+            update_browse(b);
             break;
     }
 }
@@ -506,6 +649,9 @@ static void render_main(void) {
     y += 22;
     snprintf(line, sizeof(line), "JUGADORES  - %d +", sMaxPlayers);
     text_center(y, line, sel_color(sCursor == ROW_PLAYERS), 0.8f);
+    y += 22;
+    snprintf(line, sizeof(line), "TU SALA  %s", sVisible ? "VISIBLE" : "OCULTA");
+    text_center(y, line, sel_color(sCursor == ROW_VISIBLE), 0.8f);
     y += 22;
     text_center(y, "SALIR", sel_color(sCursor == ROW_EXIT), 0.8f);
 
@@ -557,6 +703,64 @@ static void render_code(void) {
         text_center(176, sMsg, TEXT_RED, 0.5f);
     }
     text_center(210, "A ENTRAR   B VOLVER", TEXT_BLUE, 0.5f);
+}
+
+static void render_browse(void) {
+    OnlineMenuRooms rooms;
+    char line[64];
+    char name[20];
+    int total;
+    int i;
+
+    OnlineMenu_GetRooms(&rooms);
+    total = rooms.count + 1;
+    text_center(38, "SALAS DISPONIBLES", TEXT_GREEN, 0.8f);
+    for (i = sBrowseTop; i < total && i < sBrowseTop + BROWSE_ROWS; i++) {
+        int y = 62 + (i - sBrowseTop) * 16;
+        int sel = (i == sBrowseCursor);
+
+        if (i == 0) {
+            text(34, y, "ESCRIBIR UN CODIGO", sel_color(sel), 0.6f);
+        } else {
+            const OnlineMenuRoom* r = &rooms.rooms[i - 1];
+            int closed = r->racing || r->players >= r->maxPlayers;
+            int col = sel ? TEXT_BLUE_GREEN_RED_CYCLE_1 : (closed ? TEXT_RED : TEXT_BLUE);
+
+            clean(name, r->name, 13);
+            if (name[0] == 0) {
+                strcpy(name, "SIN NOMBRE");
+            }
+            text(34, y, r->code, col, 0.6f);
+            text(86, y, name, col, 0.6f);
+            snprintf(line, sizeof(line), "%d-%d", r->players, r->maxPlayers);
+            text(190, y, line, col, 0.6f);
+            if (r->racing) {
+                text(228, y, "EN CARRERA", col, 0.5f);
+            } else if (r->players >= r->maxPlayers) {
+                text(228, y, "LLENA", col, 0.5f);
+            }
+        }
+    }
+    if (sBrowseTop > 0) {
+        text_center(54, "...", TEXT_BLUE, 0.5f);
+    }
+    if (sBrowseTop + BROWSE_ROWS < total) {
+        text_center(176, "...", TEXT_BLUE, 0.5f);
+    }
+    if (!OnlineMenu_ServerConfigured()) {
+        text_center(152, "FALTA LA DIRECCION DEL SERVIDOR", TEXT_RED, 0.5f);
+    } else if (rooms.state == 1) {
+        text_center(188, "BUSCANDO SALAS...", TEXT_YELLOW, 0.5f);
+    } else if (rooms.state == 3) {
+        clean(line, rooms.error, sizeof(line));
+        text_center(188, line, TEXT_RED, 0.45f);
+    } else if (rooms.state == 2 && rooms.count == 0) {
+        text_center(188, "NO HAY SALAS DISPONIBLES", TEXT_YELLOW, 0.5f);
+    }
+    if (sMsg[0] != 0) {
+        text_center(198, sMsg, TEXT_RED, 0.5f);
+    }
+    text_center(212, "ARRIBA ABAJO ELEGIR   A UNIRSE   B VOLVER", TEXT_BLUE, 0.42f);
 }
 
 static void render_lobby(const OnlineMenuInfo* info) {
@@ -649,6 +853,9 @@ void online_menu_render(void) {
             break;
         case ST_LOBBY:
             render_lobby(&info);
+            break;
+        case ST_BROWSE:
+            render_browse();
             break;
     }
 }

@@ -49,6 +49,44 @@ void OnlineMenu_GetInfo(OnlineMenuInfo* out) {
     }
 }
 
+void OnlineMenu_RoomsStart(void) {
+    Net::RoomSearchStart(CVarGetString("gOnline.Relay", ""), RelayPort());
+}
+
+void OnlineMenu_RoomsStop(void) {
+    Net::RoomSearchStop();
+}
+
+void OnlineMenu_GetRooms(OnlineMenuRooms* out) {
+    std::memset(out, 0, sizeof(*out));
+    switch (Net::GetRoomSearchState()) {
+        case Net::RoomSearchState::Searching: out->state = 1; break;
+        case Net::RoomSearchState::Ready: out->state = 2; break;
+        case Net::RoomSearchState::Failed: out->state = 3; break;
+        default: out->state = 0; break;
+    }
+    for (const Net::RoomInfo& r : Net::GetRooms()) {
+        if (out->count >= 20) break;
+        OnlineMenuRoom& d = out->rooms[out->count++];
+        std::snprintf(d.code, sizeof(d.code), "%s", r.code.c_str());
+        std::snprintf(d.name, sizeof(d.name), "%s", r.name.c_str());
+        d.players = r.players;
+        d.maxPlayers = r.maxPlayers;
+        d.racing = r.racing ? 1 : 0;
+    }
+    std::snprintf(out->error, sizeof(out->error), "%s", Net::GetRoomSearchError().c_str());
+    std::snprintf(out->server, sizeof(out->server), "%s", CVarGetString("gOnline.Relay", ""));
+}
+
+int OnlineMenu_GetRoomVisible(void) {
+    return CVarGetInteger("gOnline.RoomVisible", 1) != 0 ? 1 : 0;
+}
+
+void OnlineMenu_SetRoomVisible(int visible) {
+    CVarSetInteger("gOnline.RoomVisible", visible ? 1 : 0);
+    CVarSave();
+}
+
 void OnlineMenu_GetName(char* out, int size) {
     std::snprintf(out, static_cast<size_t>(size), "%s", CVarGetString("gOnline.Name", "Jugador"));
 }
@@ -79,6 +117,7 @@ int OnlineMenu_ServerConfigured(void) {
 const char* OnlineMenu_Host(int maxPlayers) {
     if (!OnlineMenu_ServerConfigured()) return "falta la direccion del servidor";
     Net::SetMaxPlayers(maxPlayers);
+    Net::SetRoomVisible(OnlineMenu_GetRoomVisible() != 0);
     g_error.clear();
     char name[32];
     OnlineMenu_GetName(name, sizeof(name));

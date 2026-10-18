@@ -323,6 +323,46 @@ void online_setup_end(void) {
     }
 }
 
+// Pruebas (SK_ONLINE_TEST_ITEMS, SK_ONLINE_TEST_ITEMSLOT=N): cuando el slot N pulsa Z se le da un item distinto cada ronda
+// de 240 ticks justo antes de comprobar si lo usa (el marcador de items reescribe currentItemCopy en cada tick, asi que solo
+// vale en ese punto). Igual en todas las PCs.
+void online_test_give_item(int slot, unsigned short pressed) {
+    static const s8 itemList[] = { ITEM_TRIPLE_GREEN_SHELL, ITEM_BANANA, ITEM_RED_SHELL, ITEM_FAKE_ITEM_BOX,
+                                   ITEM_GREEN_SHELL, ITEM_BANANA_BUNCH, ITEM_BLUE_SPINY_SHELL };
+    static int init = 0;
+    static int enabled = 0;
+    static int itemSlot = 0;
+
+    if (!init) {
+        const char* e = getenv("SK_ONLINE_TEST_ITEMSLOT");
+
+        init = 1;
+        enabled = getenv("SK_ONLINE_TEST_ITEMS") != NULL;
+        itemSlot = e != NULL ? atoi(e) : 0;
+    }
+    if (!enabled || !gOnlineRace || slot != itemSlot || !(pressed & 0x2000) || sTick < 240) {
+        return;
+    }
+    gPlayers[slot].currentItemCopy = itemList[(sTick / 240) % (sizeof(itemList) / sizeof(itemList[0]))];
+}
+
+int online_item_player_count(void) {
+    static int oldLimit = -1;
+
+    if (oldLimit < 0) {
+        oldLimit = getenv("SK_ONLINE_OLD_ITEMS") != NULL;
+    }
+    return (online_race_setup_active() && !oldLimit) ? NUM_PLAYERS : 4;
+}
+
+// Pruebas: el juego usa un item (llamada desde player_use_item); se anota en el registro de la carrera.
+void online_note_item_use(int slot, int item) {
+    if (gOnlineRace && sLog != NULL && getenv("SK_ONLINE_TEST_ITEMS") != NULL) {
+        fprintf(sLog, "# itemuse tick %u slot %d item=%d\n", sTick, slot, item);
+        fflush(sLog);
+    }
+}
+
 static u64 hash_mix(u64 h, u32 v) {
     return (h ^ v) * 1099511628211ull;
 }
@@ -402,9 +442,9 @@ static void online_log_state(void) {
                     struct Actor* a = CM_GetActor((size_t) i);
 
                     if (a != NULL) {
-                        fprintf(sActLog, "t%u a%d type=%d fl=%x st=%d pos=%.2f,%.2f,%.2f vel=%.2f,%.2f,%.2f\n", sTick, i,
-                                (int) a->type, (unsigned) (u16) a->flags, (int) a->state, a->pos[0], a->pos[1],
-                                a->pos[2], a->velocity[0], a->velocity[1], a->velocity[2]);
+                        fprintf(sActLog, "t%u a%d type=%d fl=%x st=%d rot0=%d pos=%.2f,%.2f,%.2f vel=%.2f,%.2f,%.2f\n", sTick, i,
+                                (int) a->type, (unsigned) (u16) a->flags, (int) a->state, (int) a->rot[0], a->pos[0],
+                                a->pos[1], a->pos[2], a->velocity[0], a->velocity[1], a->velocity[2]);
                     }
                 }
                 fflush(sActLog);
@@ -518,11 +558,15 @@ void online_apply_pads(void) {
                 // Pruebas: SK_ONLINE_TEST_ITEMS=1 -> el slot 0 pulsa Z cada 30 ticks durante 4 pulsaciones por cada
                 // ronda de 240 ticks (al aplicarse el mando se le da un item distinto, ver mas abajo).
                 static int testItems = -2;
+                static int itemSlot = 0; // SK_ONLINE_TEST_ITEMSLOT=N: otro slot (para probar los jugadores 5 a 16)
 
                 if (testItems == -2) {
+                    const char* e = getenv("SK_ONLINE_TEST_ITEMSLOT");
+
                     testItems = getenv("SK_ONLINE_TEST_ITEMS") != NULL;
+                    itemSlot = e != NULL ? atoi(e) : 0;
                 }
-                if (testItems && sTick >= 240 && NetBridge_LocalSlot() == 0) {
+                if (testItems && sTick >= 240 && NetBridge_LocalSlot() == itemSlot) {
                     u32 phase = sTick % 240;
 
                     if (phase == 10 || phase == 40 || phase == 70 || phase == 100) {
@@ -630,14 +674,6 @@ void online_apply_pads(void) {
         gControllerPads[i].right_stick_y = 0;
     }
 
-    if ((buttons[0] & 0x2000) && getenv("SK_ONLINE_TEST_ITEMS") != NULL) {
-        // Pruebas: al llegar la Z del slot 0 (mismo tick en todas las PCs) se le da un item distinto cada ronda; el marcador
-        // de items reescribe currentItemCopy en cada tick, asi que solo vale justo antes de usarlo.
-        static const s8 itemList[] = { ITEM_TRIPLE_GREEN_SHELL, ITEM_BANANA, ITEM_RED_SHELL, ITEM_FAKE_ITEM_BOX,
-                                       ITEM_GREEN_SHELL, ITEM_BANANA_BUNCH, ITEM_BLUE_SPINY_SHELL };
-
-        gPlayers[0].currentItemCopy = itemList[(sTick / 240) % (sizeof(itemList) / sizeof(itemList[0]))];
-    }
     if ((sTick % 30) == 0) {
         online_log_state();
         if (sLog != NULL && getenv("SK_ONLINE_LAKDBG") != NULL) {

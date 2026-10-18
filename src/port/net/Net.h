@@ -40,6 +40,27 @@ bool IsRelay();                   // true si la sesion pasa por el servidor
 
 void Disconnect();
 
+// ---------------------------------------------------------------------------------------------
+// Busqueda de salas en el servidor: no hace falta estar en una sala. Se pide la lista y se refresca sola
+// cada pocos segundos hasta llamar a RoomSearchStop().
+// ---------------------------------------------------------------------------------------------
+struct RoomInfo {
+    std::string code;    // codigo de la sala
+    std::string name;    // nombre del anfitrion ("" si el anfitrion no lo manda)
+    int players = 0;     // jugadores dentro (con el anfitrion)
+    int maxPlayers = 16;
+    bool racing = false; // carrera en curso: no admite a nadie
+};
+enum class RoomSearchState { Idle, Searching, Ready, Failed };
+void RoomSearchStart(const std::string& relayHost, uint16_t relayPort);
+void RoomSearchStop();
+RoomSearchState GetRoomSearchState();
+const std::vector<RoomInfo>& GetRooms();
+const std::string& GetRoomSearchError();
+// El anfitrion elige si su sala sale en la lista (false = oculta: solo se entra con el codigo). Antes de crearla.
+void SetRoomVisible(bool visible);
+bool GetRoomVisible();
+
 // Hay que llamarla una vez por fotograma (lee el socket, envia latidos, gestiona timeouts).
 void Tick();
 

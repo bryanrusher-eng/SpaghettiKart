@@ -17,6 +17,11 @@ int online_race_setup_active(void);
 // En carrera online la simulacion NO debe depender de la camara de cada PC (que objetos estan "cerca", "a la vista",
 // en la misma seccion...): devuelve 1 cuando hay que simular todo el circuito siempre.
 int online_no_cull(void);
+// Pruebas (variables de entorno SK_ONLINE_TEST_ITEMS): dar un item justo antes de comprobar si se usa, y anotar cada uso.
+void online_test_give_item(int slot, unsigned short buttonPressed);
+void online_note_item_use(int slot, int item);
+// Cuantos jugadores pueden usar items (hasta 16 en carrera en red; SK_ONLINE_OLD_ITEMS=1 reproduce el limite antiguo de 4).
+int online_item_player_count(void);
 // Lee una opcion del juego que afecta a la simulacion: en carrera en red devuelve siempre el valor por defecto.
 int online_cvar_int(const char* name, int def);
 float online_cvar_float(const char* name, float def);

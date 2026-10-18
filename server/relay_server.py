@@ -51,6 +51,8 @@ R_AGG_LEAVE = 22    # jugador -> servidor: salgo de la carrera (dejad de esperar
 R_AGG_DROPPED = 21  # servidor -> jugador: se te dio por caido de la carrera (sal de ella)
 R_AGG_LEFT = 19     # servidor -> anfitrion: u8 slot que dejo de responder
 R_AGG_END = 20      # anfitrion -> servidor: fin de la carrera
+R_LIST = 23         # jugador -> servidor: pide la lista de salas visibles (el cuerpo se rellena hasta 16 bytes o mas)
+R_LIST_REPLY = 24   # servidor -> jugador: u8 n, n x (str codigo, str nombre, u8 jugadores, u8 maximo, u8 banderas)
 
 MAX_PAYLOAD = 1300
 MAX_CLIENTS_PER_ROOM = 15
@@ -59,10 +61,22 @@ MAX_ROOMS = 500
 ROOM_TIMEOUT = 15.0   # segundos sin noticias del anfitrion
 CLIENT_TIMEOUT = 15.0
 CREATE_COOLDOWN = 1.0  # segundos minimos entre creaciones desde una misma IP
+LIST_COOLDOWN = 0.5    # segundos minimos entre peticiones de lista desde una misma IP
+LIST_MAX_ROOMS = 20    # salas que caben en una respuesta
+LIST_MIN_REQUEST = 16  # bytes minimos del cuerpo de la peticion (evita que sirva para amplificar trafico)
+NAME_BYTES = 24        # el juego no admite nombres de mas de 24 bytes
 
 TICK_MS = 1000.0 / 30.0
 NEUTRAL = b"\x00\x00\x00\x00"
 AGG_DEADLINE = 0.120    # s: un mando que tarda mas que esto tras el ultimo fotograma se sustituye por el anterior
+AGG_DEADLINE_MAX = 0.20 # s: tope del plazo por jugador (antes 0.25 para todos, segun el peor ping de la sala)
+AGG_PENALTY_FILLS = 3   # rellenos en AGG_PENALTY_WINDOW segundos: el jugador se considera inestable...
+AGG_PENALTY_WINDOW = 20.0
+AGG_PENALTY_DEADLINE = 0.06  # ...y solo se le espera esto (un jugador con tirones ya no frena a los demas)
+AGG_RAISE_FILLS = 30    # rellenos en AGG_RAISE_WINDOW s = conexion degradada de forma sostenida (no un pico): se le sube el retraso
+AGG_RAISE_WINDOW = 3.0
+AGG_RAISE_STEP = 2      # ticks que se suman al retraso de entrada de ese jugador cada vez (MAX_DELAY de tope)
+AGG_RAISE_EVERY = 3.0   # s minimos entre dos subidas
 AGG_SILENT = 0.5        # s sin senales de un jugador: ya no se le espera (se rellena su mando) hasta que vuelva
 AGG_DROP_AFTER = 3.0    # s sin noticias de un jugador en carrera: se da por desconectado
 AGG_BARRIER = 90.0      # s maximos esperando a que todos terminen de cargar la pista
@@ -103,6 +117,10 @@ class Room:
         self.by_addr = {}   # addr -> id
         self.next_id = 1
         self.agg = None     # agregador de la carrera en curso (o None)
+        self.name = ""      # nombre del anfitrion (para la lista de salas)
+        self.max_players = 16
+        self.visible = True # False = sala oculta: solo se entra con el codigo
+        self.created = time.monotonic()
 
 
 class Agg:
@@ -126,6 +144,18 @@ class Agg:
         self.skip_until = {}                     # slot -> tick hasta el que no se le espera (iba tarde)
         self.released = False
         self.deadline = AGG_DEADLINE             # plazo actual para esperar un mando (se adapta al ping)
+        self.dl = {s: AGG_DEADLINE for s in self.slots}      # plazo por jugador (segun SU ping, no el peor de la sala)
+        self.fill_times = {s: collections.deque(maxlen=8) for s in self.slots}   # cuando se le relleno el mando
+        self.penalized = set()                   # jugadores inestables (se les espera menos)
+        self.last_fill_tick = {}                 # slot -> ultimo tick en que se le relleno el mando
+        self.fill_burst = {s: collections.deque(maxlen=64) for s in self.slots}   # instantes de los ultimos rellenos
+        self.last_raise = {}                     # slot -> instante de la ultima subida de su retraso
+        self.mask = 0xFFFF                       # mascara de humanos que se manda en R_AGG_PARAMS
+        self.raises = {s: 0 for s in self.slots}
+        self.wait_since = None                   # desde cuando se espera a alguien (para medir los tirones)
+        self.wait_slots = []                     # a quien se espera
+        self.stall_ms = {s: 0.0 for s in self.slots}   # tiempo que se freno a todos esperando a este jugador
+        self.stall_n = {s: 0 for s in self.slots}
         self.fill_log_t = now
         self.fill_logged = 0
         self.begin = now
@@ -166,6 +196,43 @@ class Agg:
             if s not in slot_inputs:
                 slot_inputs[s] = body[9 + 4 * k:13 + 4 * k]
         self.try_emit(relay, now)
+
+    def slot_deadline(self, s, now):
+        """Cuanto se espera el mando de este jugador antes de rellenarlo. Los jugadores que van tarde varias veces seguidas
+        (wifi con picos, PC con tirones) solo se esperan un momento: si no, cada pico frenaba a TODOS los jugadores."""
+        base = self.dl[s]
+        recent = sum(1 for ft in self.fill_times[s] if now - ft < AGG_PENALTY_WINDOW)
+        if recent >= AGG_PENALTY_FILLS:
+            if s not in self.penalized:
+                self.penalized.add(s)
+                log.info("agregador: el jugador de slot %d va con tirones (%d mandos tardios en %.0f s): se le espera menos",
+                         s, recent, AGG_PENALTY_WINDOW)
+            return min(base, AGG_PENALTY_DEADLINE)
+        if s in self.penalized and recent == 0:
+            self.penalized.discard(s)          # lleva un rato bien: vuelve el plazo normal
+        return base
+
+    def stall_summary(self):
+        """Quien freno la partida a los demas: {slot: (veces, segundos)} (solo tirones de mas de 50 ms)."""
+        return {s: (self.stall_n[s], round(self.stall_ms[s] / 1000.0, 1)) for s in self.slots if self.stall_n[s]}
+
+    def consider_raise(self, relay, s, now):
+        """Un jugador al que se le rellenan muchos mandos SEGUIDOS (no un pico suelto) tiene una conexion que ya no cabe en su
+        retraso de entrada: se le sube a media carrera. Asi vuelve a controlar su kart sin frenar a nadie."""
+        if self.delay[s] >= MAX_DELAY or now - self.last_raise.get(s, 0.0) < AGG_RAISE_EVERY:
+            return
+        recent = sum(1 for ft in self.fill_burst[s] if now - ft < AGG_RAISE_WINDOW)
+        if recent < AGG_RAISE_FILLS:
+            return
+        self.last_raise[s] = now
+        old = self.delay[s]
+        self.delay[s] = min(MAX_DELAY, old + AGG_RAISE_STEP)
+        self.raises[s] += 1
+        pkt = pack(R_AGG_PARAMS, struct.pack("<BH", self.delay[s], self.mask))
+        self.params[s] = pkt
+        for _ in range(3):
+            relay.send(self.humans[s], pkt)
+        log.info("agregador: conexion degradada del jugador de slot %d: retraso de entrada %d -> %d ticks", s, old, self.delay[s])
 
     def fill_pad(self, s):
         """Mando que se pone a un jugador que no llego a tiempo: conserva los botones, pero con el stick en el centro
@@ -208,13 +275,32 @@ class Agg:
                     pads.append(None)
                     missing.append(s)
             if missing:
-                if now - self.last_emit < self.deadline:
+                # Si a un jugador ya se le relleno el tick anterior, sus mandos siguen en camino (pico de lag): no se frena
+                # a los demas mas que el ritmo normal de la partida (un tick cada 1/30 s) por cada tick que le falta.
+                wait = max((1.0 / 30.0 if self.last_fill_tick.get(s, -9) == T - 1 else self.slot_deadline(s, now))
+                           for s in missing)
+                if now - self.last_emit < wait:
+                    if self.wait_since is None:
+                        self.wait_since = now
+                    self.wait_slots = missing
                     return
                 for i, s in enumerate(self.slots):
                     if pads[i] is None:
                         pads[i] = self.fill_pad(s)         # solo este tick: el jugador atrasado se pone al dia esperandole
                         self.fill_by_slot[s] += 1
+                        self.fill_times[s].append(now)
+                        self.fill_burst[s].append(now)
+                        self.last_fill_tick[s] = T
+                        self.consider_raise(relay, s, now)
                         self.n_fill += 1
+            if self.wait_since is not None:
+                stall = now - self.wait_since
+                if stall > 0.05 and self.wait_slots:   # un tiron que se nota (mas de 50 ms con la partida parada)
+                    for s in self.wait_slots:
+                        self.stall_ms[s] += stall * 1000.0 / len(self.wait_slots)
+                        self.stall_n[s] += 1
+                self.wait_since = None
+                self.wait_slots = []
             for i, s in enumerate(self.slots):
                 if s not in self.dropped and T >= self.delay[s]:
                     self.last_pad[s] = pads[i]
@@ -258,6 +344,10 @@ class Agg:
         live = [self.humans[s] for s in self.slots if s not in self.dropped]
         worst = max((relay.rtt_of(a)[0] + 3 * relay.rtt_of(a)[1] for a in live), default=0.0)
         self.deadline = max(AGG_DEADLINE, min(0.25, worst / 1000.0 + 0.04))
+        for s in self.slots:
+            if s not in self.dropped:
+                ref, dev = relay.rtt_of(self.humans[s])
+                self.dl[s] = max(AGG_DEADLINE, min(AGG_DEADLINE_MAX, (ref + 3 * dev) / 1000.0 + 0.04))
         if self.released and now - self.fill_log_t >= 10.0:
             self.fill_log_t = now
             if self.n_fill != self.fill_logged:
@@ -319,6 +409,7 @@ class Relay(asyncio.DatagramProtocol):
         self.host_room = {}    # addr del anfitrion -> Room
         self.client_room = {}  # addr del cliente -> Room
         self.last_create = {}  # ip -> instante
+        self.last_list = {}    # ip -> instante de la ultima lista pedida
         self.packets = 0
         # Emulacion de red para pruebas de latencia (todo apagado por defecto)
         self.sim_owd = 0.0       # ms de ida de cada tramo cliente<->rele
@@ -330,6 +421,8 @@ class Relay(asyncio.DatagramProtocol):
         self.rtt = {}            # direccion -> ultimas 60 muestras de ping (ms)
         self.last_ping = 0.0
         self.force_mode = None   # PRUEBAS: fuerza el modo de latencia
+        self.sim_degrade = []    # PRUEBAS: [(id de cliente, ms extra de ida, segundos tras empezar la carrera)]
+        self.degraded = set()
 
     # ---------- util ----------
     def connection_made(self, transport):
@@ -354,7 +447,7 @@ class Relay(asyncio.DatagramProtocol):
         pass   # errores ICMP de un cliente que se fue: se ignoran
 
     def send(self, addr, data, src=None):
-        if not (self.sim_owd or self.sim_host or self.sim_jitter or self.sim_loss or self.sim_extra):
+        if not (self.sim_owd or self.sim_host or self.sim_jitter or self.sim_loss or self.sim_extra or self.sim_degrade):
             self.transport.sendto(data, addr)
             return
         # el paquete cruza el tramo de origen y el de destino (si lo origina el propio rele, cuenta ida y vuelta)
@@ -442,6 +535,7 @@ class Relay(asyncio.DatagramProtocol):
         mask = 0
         for s in humans:
             mask |= 1 << s
+        room.agg.mask = mask
         log.info("agregador: carrera de %d humanos en la sala %s (modo %d), retrasos %s", len(humans), room.code, mode,
                  {s: delays[s] for s in sorted(delays)})
         log.info("agregador: RTT/desviacion medidos (ms) %s",
@@ -471,6 +565,17 @@ class Relay(asyncio.DatagramProtocol):
         r.append(sample)
 
     def agg_tick(self):
+        if self.sim_degrade:
+            now = time.monotonic()
+            for room in self.rooms.values():
+                if room.agg is None:
+                    continue
+                for cid, ms, at in self.sim_degrade:
+                    c = room.clients.get(cid)
+                    if c and (room.code, cid) not in self.degraded and now - room.agg.begin >= at:
+                        self.degraded.add((room.code, cid))
+                        self.leg[c[0]] = self.leg.get(c[0], self.sim_owd) + ms
+                        log.info("PRUEBAS: la conexion del cliente %d empeora %d ms de ida", cid, ms)
         now = time.monotonic()
         if now - self.last_ping >= 1.0:
             self.last_ping = now
@@ -520,7 +625,9 @@ class Relay(asyncio.DatagramProtocol):
         now = time.monotonic()
 
         if ptype == R_CREATE:
-            self.on_create(addr, now)
+            self.on_create(addr, body, now)
+        elif ptype == R_LIST:
+            self.on_list(addr, body, now)
         elif ptype == R_JOIN:
             self.on_join(addr, body, now)
         elif ptype == R_DATA_UP:
@@ -570,6 +677,9 @@ class Relay(asyncio.DatagramProtocol):
                 a = room.agg
                 log.info("agregador: fin de carrera en %s (%d ticks, %d rellenos por plazo %s)", room.code, a.n_emit,
                          a.n_fill, {s: n for s, n in a.fill_by_slot.items() if n})
+                log.info("agregador: tirones (slot: veces, segundos parados) %s", a.stall_summary())
+                if any(a.raises.values()):
+                    log.info("agregador: retrasos subidos a media carrera %s", {s: a.delay[s] for s in a.slots if a.raises[s]})
                 room.agg = None
         elif ptype == R_CLOSE:
             room = self.host_room.get(addr)
@@ -581,10 +691,22 @@ class Relay(asyncio.DatagramProtocol):
                     cid = room.by_addr.pop(addr, None)
                     room.clients.pop(cid, None)
 
-    def on_create(self, addr, now):
+    @staticmethod
+    def read_room_info(body):
+        """Cuerpo opcional de R_CREATE: str nombre, u8 maximo de jugadores, u8 visible. Los anfitriones antiguos
+        no lo mandan (cuerpo vacio): sala sin nombre, de 16 y visible."""
+        name, off = read_str(body, 0)
+        if name is None:
+            return "", 16, True
+        mx = body[off] if off < len(body) else 16
+        vis = body[off + 1] != 0 if off + 1 < len(body) else True
+        return name.strip()[:NAME_BYTES], max(2, min(int(mx), 16)), vis
+
+    def on_create(self, addr, body, now):
         room = self.host_room.get(addr)
         if room:  # reintento: mismo codigo
             room.host_seen = now
+            room.name, room.max_players, room.visible = self.read_room_info(body)
             self.send(addr, pack(R_CREATED, pstr(room.code)))
             return
         ip = addr[0]
@@ -602,11 +724,40 @@ class Relay(asyncio.DatagramProtocol):
             return
         self.last_create[ip] = now
         room = Room(code, addr)
+        room.name, room.max_players, room.visible = self.read_room_info(body)
         self.rooms[code] = room
         self.host_room[addr] = room
         self.leg[addr] = self.sim_host
-        log.info("sala %s creada por %s:%d", code, addr[0], addr[1])
+        log.info("sala %s creada por %s:%d (%s, max %d, %s)", code, addr[0], addr[1], room.name or "sin nombre",
+                 room.max_players, "visible" if room.visible else "oculta")
         self.send(addr, pack(R_CREATED, pstr(code)))
+
+    def on_list(self, addr, body, now):
+        """Lista de salas visibles. Primero las que admiten jugadores (sin carrera en curso y no llenas), mas nuevas
+        antes; el resto al final. Limitada por IP y solo responde a peticiones rellenadas (anti-amplificacion)."""
+        if len(body) < LIST_MIN_REQUEST:
+            return
+        ip = addr[0]
+        if now - self.last_list.get(ip, 0) < LIST_COOLDOWN:
+            return
+        self.last_list[ip] = now
+        rows = []
+        for room in self.rooms.values():
+            if not room.visible:
+                continue
+            players = 1 + len(room.clients)
+            racing = room.agg is not None
+            full = players >= room.max_players
+            rows.append((1 if (racing or full) else 0, -room.created, room, players, racing))
+        rows.sort(key=lambda r: (r[0], r[1]))
+        rows = rows[:LIST_MAX_ROOMS]
+        out = bytearray([len(rows)])
+        for _, _, room, players, racing in rows:
+            name = room.name.encode("utf-8")[:NAME_BYTES].decode("utf-8", "ignore")
+            out += pstr(room.code) + pstr(name)
+            # el anfitrion rechaza a los que sobran, pero hasta que se van el rele aun los cuenta: no se muestra mas que el maximo
+            out += bytes([min(players, room.max_players), room.max_players, 1 if racing else 0])
+        self.send(addr, pack(R_LIST_REPLY, bytes(out)))
 
     def on_join(self, addr, body, now):
         code, _ = read_str(body, 0)
@@ -648,6 +799,8 @@ class Relay(asyncio.DatagramProtocol):
                     log.info("sala %s: cliente %d sin respuesta", room.code, cid)
         for ip in [i for i, t in self.last_create.items() if now - t > 60]:
             self.last_create.pop(ip, None)
+        for ip in [i for i, t in self.last_list.items() if now - t > 60]:
+            self.last_list.pop(ip, None)
 
 
 async def main():
@@ -662,6 +815,7 @@ async def main():
     ap.add_argument("--sim-loss", type=float, default=0.0, help="PRUEBAS: porcentaje de paquetes perdidos por tramo")
     ap.add_argument("--agg-mode", type=int, default=None, help="PRUEBAS: fuerza el modo de latencia (0 estable, 1 equilibrada, 2 rapida)")
     ap.add_argument("--sim-extra", default="", help="PRUEBAS: ms extra por cliente, ej. 1=40,3=90")
+    ap.add_argument("--sim-degrade", default="", help="PRUEBAS: empeora la conexion de un cliente a media carrera, ej. 1=75@20 (id=ms de ida@segundos)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -680,6 +834,10 @@ async def main():
     relay.sim_host = args.sim_host
     relay.sim_jitter = args.sim_jitter
     relay.sim_loss = args.sim_loss
+    for item in [x for x in args.sim_degrade.split(",") if "=" in x and "@" in x]:
+        k, rest = item.split("=")
+        ms, at = rest.split("@")
+        relay.sim_degrade.append((int(k), float(ms), float(at)))
     for item in [x for x in args.sim_extra.split(",") if "=" in x]:
         k, v = item.split("=", 1)
         relay.sim_extra[int(k)] = float(v)

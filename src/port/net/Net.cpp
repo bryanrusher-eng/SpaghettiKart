@@ -71,6 +71,7 @@ enum RelayType : uint8_t {
     // agregador de mandos (carrera): el rele reune los mandos y difunde los fotogramas
     R_PING = 13, R_PONG = 14, R_AGG_BEGIN = 15, R_AGG_PARAMS = 16, R_AGG_INPUT = 17, R_AGG_FRAME = 18,
     R_AGG_LEFT = 19, R_AGG_END = 20, R_AGG_DROPPED = 21, R_AGG_LEAVE = 22,
+    R_LIST = 23, R_LIST_REPLY = 24, // busqueda de salas
 };
 constexpr uint64_t kRelayKeepaliveMs = 2000;
 constexpr uint64_t kRelayTimeoutMs = 9000;
@@ -178,6 +179,18 @@ uint64_t g_rStart = 0;
 uint64_t g_rLastSend = 0;
 uint64_t g_rLastKeep = 0;
 uint64_t g_rLastRecv = 0;
+
+// Busqueda de salas (socket propio: funciona sin estar dentro de una sala)
+bool g_roomVisible = true;
+sock_t g_listSock = kInvalidSock;
+sockaddr_in g_listAddr;
+RoomSearchState g_listState = RoomSearchState::Idle;
+std::vector<RoomInfo> g_rooms;
+std::string g_listError;
+uint64_t g_listStart = 0;
+uint64_t g_listLastSend = 0;
+uint64_t g_listLastReply = 0;
+uint64_t g_listLastQuery = 0; // ultima vez que una pantalla miro la lista (si nadie la mira, la busqueda se para sola)
 
 // Cliente
 ClientState g_cstate = ClientState::Idle;
@@ -391,7 +404,7 @@ bool InitSockets() {
     return true;
 }
 
-bool OpenSocket(uint16_t bindPort, std::string& err) {
+bool MakeSocket(uint16_t bindPort, sock_t& out, std::string& err) {
     if (!InitSockets()) {
         err = "no se pudo iniciar winsock";
         return false;
@@ -421,8 +434,12 @@ bool OpenSocket(uint16_t bindPort, std::string& err) {
         CloseSock(s);
         return false;
     }
-    g_sock = s;
+    out = s;
     return true;
+}
+
+bool OpenSocket(uint16_t bindPort, std::string& err) {
+    return MakeSocket(bindPort, g_sock, err);
 }
 
 void SendRaw(const sockaddr_in& to, const std::vector<uint8_t>& b) {
@@ -453,6 +470,17 @@ void SendRelay(RelayType t, const std::string& arg = std::string()) {
     w.u32(kRelayMagic);
     w.u8(t);
     if (!arg.empty()) w.str(arg);
+    SendRaw(g_relay, w.b);
+}
+
+// Crear sala (se repite hasta que llega R_CREATED): nombre del anfitrion, maximo de jugadores y si sale en la lista.
+void SendCreate() {
+    Writer w;
+    w.u32(kRelayMagic);
+    w.u8(R_CREATE);
+    w.str(g_myName);
+    w.u8(static_cast<uint8_t>(g_maxPlayers));
+    w.u8(g_roomVisible ? 1 : 0);
     SendRaw(g_relay, w.b);
 }
 
@@ -755,6 +783,14 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
             SendTo(from, w);
             return;
         }
+        // Con una carrera en marcha (o cargandose, o terminando) no se admite a nadie nuevo: su slot podia coincidir con el de
+        // alguien que acaba de salir de la carrera y se liaba la partida de todos. Puede volver a entrar al terminar.
+        if (g_race.active || g_race.pending || g_race.starting || g_raceEndAt != 0) {
+            Writer w = Begin(PKT_REJECT);
+            w.str("hay una carrera en curso");
+            SendTo(from, w);
+            return;
+        }
         int slot = FreeSlot();
         if (slot < 0) {
             Writer w = Begin(PKT_REJECT);
@@ -895,6 +931,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
         case PKT_REJECT: {
             std::string why = r.str();
             SetStatus("El anfitrion rechazo la conexion: " + why);
+            if (g_viaRelay) SendRelay(R_CLOSE); // el servidor no debe seguir contandome dentro de la sala
             CloseSock(g_sock);
             g_sock = kInvalidSock;
             ResetState();
@@ -1085,7 +1122,14 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
             g_aggActive = true;
             g_aggDelay = std::max(1, std::min(d, 16));
             // si la carrera ya cargo y todavia no se mando ningun mando, se corrige el retraso
-            if (g_race.active && !g_race.anySubmitted) g_race.delay = g_aggDelay;
+            if (g_race.active && !g_race.anySubmitted) {
+                g_race.delay = g_aggDelay;
+            } else if (g_race.active && g_aggDelay > g_race.delay) {
+                // A media carrera el servidor puede subir el retraso de este jugador (su conexion se degrado): los mandos
+                // que quedan entre el ultimo y el nuevo se mandan neutros (la ventana de SendAggInput los cubre).
+                g_race.delay = g_aggDelay;
+                Log("El servidor subio tu retraso de entrada a " + std::to_string(g_race.delay) + " ticks");
+            }
             break;
         }
         case R_AGG_FRAME: {
@@ -1197,6 +1241,7 @@ bool StartJoin(const std::string& host, uint16_t port, const std::string& name, 
 }
 
 bool StartHostRelay(const std::string& relayHost, uint16_t relayPort, const std::string& name, std::string& err) {
+    RoomSearchStop();
     Disconnect();
     if (!ResolveV4(relayHost, relayPort, g_relay, err)) {
         SetStatus("No se pudo crear la sala: " + err);
@@ -1216,12 +1261,13 @@ bool StartHostRelay(const std::string& relayHost, uint16_t relayPort, const std:
     g_rLastRecv = g_rStart;
     g_lastRoster = g_rStart;
     SetStatus("Conectando con el servidor...");
-    SendRelay(R_CREATE);
+    SendCreate();
     return true;
 }
 
 bool StartJoinRelay(const std::string& relayHost, uint16_t relayPort, const std::string& code,
                     const std::string& name, std::string& err) {
+    RoomSearchStop();
     Disconnect();
     std::string c;
     for (char ch : code) {
@@ -1261,6 +1307,113 @@ bool StartJoinRelay(const std::string& relayHost, uint16_t relayPort, const std:
 }
 
 const std::string& GetRoomCode() { return g_roomCode; }
+
+// ---------- busqueda de salas ----------
+static void RoomSearchSend() {
+    if (g_listSock == kInvalidSock) return;
+    Writer w;
+    w.u32(kRelayMagic);
+    w.u8(R_LIST);
+    for (int i = 0; i < 32; i++) w.u8(0); // el servidor solo responde a peticiones con relleno
+    sendto(g_listSock, reinterpret_cast<const char*>(w.b.data()), static_cast<int>(w.b.size()), 0,
+           reinterpret_cast<const sockaddr*>(&g_listAddr), sizeof(g_listAddr));
+    g_listLastSend = NowMs();
+}
+
+void RoomSearchStop() {
+    if (g_listSock != kInvalidSock) {
+        CloseSock(g_listSock);
+        g_listSock = kInvalidSock;
+    }
+    g_listState = RoomSearchState::Idle;
+}
+
+void RoomSearchStart(const std::string& relayHost, uint16_t relayPort) {
+    RoomSearchStop();
+    g_rooms.clear();
+    g_listError.clear();
+    std::string err;
+    if (relayHost.empty()) {
+        g_listError = "falta la direccion del servidor";
+        g_listState = RoomSearchState::Failed;
+        return;
+    }
+    if (!ResolveV4(relayHost, relayPort, g_listAddr, err) || !MakeSocket(0, g_listSock, err)) {
+        g_listError = err.empty() ? "no se pudo contactar con el servidor" : err;
+        g_listState = RoomSearchState::Failed;
+        return;
+    }
+    g_listState = RoomSearchState::Searching;
+    g_listStart = NowMs();
+    g_listLastQuery = g_listStart;
+    g_listLastReply = g_listStart;
+    RoomSearchSend();
+}
+
+RoomSearchState GetRoomSearchState() {
+    g_listLastQuery = NowMs();
+    return g_listState;
+}
+const std::vector<RoomInfo>& GetRooms() { return g_rooms; }
+const std::string& GetRoomSearchError() { return g_listError; }
+void SetRoomVisible(bool visible) { g_roomVisible = visible; }
+bool GetRoomVisible() { return g_roomVisible; }
+
+static void RoomSearchTick(uint64_t now) {
+    if (g_listSock == kInvalidSock) return;
+    if (now - g_listLastQuery > 8000) { // ninguna pantalla la esta mirando
+        RoomSearchStop();
+        return;
+    }
+    uint8_t buf[1500];
+    for (int n = 0; n < 16; n++) {
+        sockaddr_in from;
+        socklen_t flen = sizeof(from);
+        int got = recvfrom(g_listSock, reinterpret_cast<char*>(buf), sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from),
+                           &flen);
+        if (got < 0) {
+            if (LastSockError() == kConnReset) continue;
+            break;
+        }
+        if (got < 6) continue;
+        if (from.sin_addr.s_addr != g_listAddr.sin_addr.s_addr || from.sin_port != g_listAddr.sin_port) continue;
+        Reader r(buf, static_cast<size_t>(got));
+        if (r.u32() != kRelayMagic || r.u8() != R_LIST_REPLY) continue;
+        int count = r.u8();
+        std::vector<RoomInfo> rooms;
+        for (int i = 0; i < count && r.ok; i++) {
+            RoomInfo ri;
+            ri.code = r.str();
+            ri.name = r.str();
+            ri.players = r.u8();
+            ri.maxPlayers = r.u8();
+            ri.racing = (r.u8() & 1) != 0;
+            if (r.ok) rooms.push_back(ri);
+        }
+        if (!r.ok) continue;
+        g_rooms = rooms;
+        g_listState = RoomSearchState::Ready;
+        g_listLastReply = now;
+    }
+    if (g_listState == RoomSearchState::Searching) {
+        if (now - g_listStart > 4000) {
+            g_listError = "el servidor no responde (puede ser una version antigua)";
+            g_listState = RoomSearchState::Failed;
+        } else if (now - g_listLastSend >= 700) {
+            RoomSearchSend();
+        }
+    } else if (g_listState == RoomSearchState::Ready) {
+        if (now - g_listLastSend >= 3000) RoomSearchSend(); // refresco automatico
+        if (now - g_listLastReply > 12000) {
+            g_listError = "se perdio la conexion con el servidor";
+            g_listState = RoomSearchState::Failed;
+        }
+    } else if (g_listState == RoomSearchState::Failed) {
+        if (now - g_listLastSend >= 3000) { // si el servidor vuelve, la lista se recupera sola
+            RoomSearchSend();
+        }
+    }
+}
 
 bool IsRelay() { return g_viaRelay; }
 
@@ -1365,6 +1518,7 @@ static void AutoRaceFromEnv(uint64_t now) {
 static void TickImpl() {
     AutoStartFromEnv(NowMs());
     AutoRaceFromEnv(NowMs());
+    RoomSearchTick(NowMs());
     if (g_sock == kInvalidSock) return;
     uint64_t now = NowMs();
 
@@ -1461,7 +1615,7 @@ static void TickImpl() {
                 SetStatus("No se pudo contactar con el servidor");
                 CloseAndReset();
             } else if (now - g_rLastSend >= kRelayRetryMs) {
-                SendRelay(R_CREATE);
+                SendCreate();
                 g_rLastSend = now;
             }
             return;

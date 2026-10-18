@@ -923,6 +923,8 @@ void use_thunder_item(Player* player) {
 void player_use_item(Player* player) {
     s32 playerId = player - gPlayerOne;
 
+    online_note_item_use(playerId, (s32) player->currentItemCopy);
+
     switch (player->currentItemCopy) {
         case ITEM_GREEN_SHELL:
             use_green_shell_item(player);
@@ -980,8 +982,10 @@ void check_player_use_item(void) {
     struct Controller* controller;
     struct Controller* loopController;
 
-    for (player = &gPlayers[0], loopController = &gControllers[0], target = &gControllers[4]; loopController != target;
-         player++, loopController++) {
+    // Carrera en red: pueden ser hasta 16 humanos, cada uno con el mando de su slot (los jugadores 5 a 16 no podian usar items).
+    for (player = &gPlayers[0], loopController = &gControllers[0],
+        target = &gControllers[online_item_player_count()];
+         loopController != target; player++, loopController++) {
         controller = loopController;
         if (prevent_item_use(player) == false) {
             if ((player->type & PLAYER_INVISIBLE_OR_BOMB) != 0) {
@@ -996,6 +1000,7 @@ void check_player_use_item(void) {
                 }
             }
 
+            online_test_give_item((s32) (player - gPlayers), controller->buttonPressed);
             if (((player->type & PLAYER_HUMAN) != 0) && (player->currentItemCopy != ITEM_NONE) &&
                 ((player->type & PLAYER_START_SEQUENCE) == 0)) {
                 if ((controller->buttonPressed & Z_TRIG) != 0) {
