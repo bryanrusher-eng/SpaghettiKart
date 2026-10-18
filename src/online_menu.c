@@ -573,7 +573,12 @@ static void render_lobby(const OnlineMenuInfo* info) {
         text_center(40, info->connected ? "SALA" : "CONECTANDO", TEXT_GREEN, 0.9f);
     }
     clean(line, info->status, sizeof(line));
-    text_center(58, line, TEXT_BLUE, 0.42f);
+    text_center(52, line, TEXT_BLUE, 0.42f);
+    // cabecera de la columna de victorias
+    text(34 + 108, 61, "VICT", TEXT_GREEN, 0.4f);
+    if (info->numPeers > 8) {
+        text(34 + 138 + 108, 61, "VICT", TEXT_GREEN, 0.4f);
+    }
 
     for (i = 0; i < info->numPeers && i < 16; i++) {
         const OnlineMenuPeer* p = &info->peers[i];
@@ -583,22 +588,19 @@ static void render_lobby(const OnlineMenuInfo* info) {
         clean(name, p->name, 11);
         {
             int ch = (p->character >= 0 && p->character < 8) ? p->character : 0;
-            char wins[12] = "";
-            if (p->wins > 0) {
-                snprintf(wins, sizeof(wins), "  %dV", p->wins);
-            }
-            if (p->isSelf) {
-                snprintf(line, sizeof(line), "%d %s  %s%s", p->slot + 1, name, kCharNames[ch], wins);
-            } else {
-                snprintf(line, sizeof(line), "%d %s  %s%s  %dMS", p->slot + 1, name, kCharNames[ch], wins, p->ping);
-            }
+            char wins[16];
+
+            snprintf(line, sizeof(line), "%d %s  %s", p->slot + 1, name, kCharNames[ch]);
+            text(x, y, line, p->isSelf ? TEXT_GREEN : TEXT_BLUE, 0.5f);
+            // Victorias: columna propia a la derecha de cada jugador, en verde (amarillo si va ganando)
+            snprintf(wins, sizeof(wins), "%d", p->wins);
+            text(x + 112, y, wins, p->wins > 0 ? TEXT_YELLOW : TEXT_BLUE, 0.55f);
         }
-        text(x, y, line, p->isSelf ? TEXT_GREEN : TEXT_BLUE, 0.5f);
     }
 
     if (info->cpuWins > 0) {
-        snprintf(line, sizeof(line), "CPU  %dV", info->cpuWins);
-        text(34, 70 + 8 * 10 + 2, line, TEXT_RED, 0.5f);
+        snprintf(line, sizeof(line), "VICTORIAS DE LOS CPU  %d", info->cpuWins);
+        text(34, 70 + ((info->numPeers < 8 ? info->numPeers : 8) * 10) + 4, line, TEXT_RED, 0.5f);
     }
     if (info->connected) {
         snprintf(line, sizeof(line), "TU PERSONAJE  %s", kCharNames[(sChar >= 0 && sChar < 8) ? sChar : 0]);
@@ -710,19 +712,18 @@ void online_results_render(void) {
         }
         draw_portrait_small(cx - 11, top + 11, ch, 0.7f, 0, 1, br, bg, bb, 255);
         snprintf(line, sizeof(line), "%d", rank + 1);
-        text(cx - 33, top + 17, line, TEXT_YELLOW, 0.55f);
+        text(cx - 33, top + 17, line, rank == 0 ? TEXT_RED : TEXT_YELLOW, 0.55f);
         text_center_at(cx, top + 34, name, color, 0.45f);
-        if (rank == 0) {
-            text_center_at(cx, top + 38, "GANADOR", TEXT_YELLOW, 0.4f);
-        } else if (human && NetBridge_Wins(slot) > 0) {
-            snprintf(line, sizeof(line), "%d VICT", NetBridge_Wins(slot));
-            text_center_at(cx, top + 41, line, TEXT_GREEN, 0.35f);
+        if (human) {
+            // victorias de este jugador, a la derecha del retrato (el ganador ya las trae sumadas)
+            snprintf(line, sizeof(line), "%dV", NetBridge_Wins(slot));
+            text(cx + 6, top + 9, line, rank == 0 ? TEXT_YELLOW : TEXT_GREEN, 0.7f);
         }
     }
     if (NetBridge_CpuWins() > 0) {
         snprintf(line, sizeof(line), "VICTORIAS DE LOS CPU  %d", NetBridge_CpuWins());
-        text_center(200, line, TEXT_RED, 0.42f);
+        text_center(205, line, TEXT_RED, 0.4f);
     }
     snprintf(line, sizeof(line), "SIGUIENTE CARRERA EN %d", online_results_seconds_left());
-    text_center(210, line, TEXT_BLUE, 0.5f);
+    text_center(214, line, TEXT_BLUE, 0.45f);
 }
