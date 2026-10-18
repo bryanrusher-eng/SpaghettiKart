@@ -2438,19 +2438,10 @@ void func_8005CB60(s32 playerId, s32 lapCount) {
 
 void func_8005D0FC(s32 playerId) {
     if (gModeSelection != BATTLE) {
-        switch (playerId) { /* irregular */
-            case PLAYER_ONE:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_ONE]);
-                break;
-            case PLAYER_TWO:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_TWO]);
-                break;
-            case PLAYER_THREE:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_THREE]);
-                break;
-            case PLAYER_FOUR:
-                func_8005CB60(playerId, gLapCountByPlayerId[PLAYER_FOUR]);
-                break;
+        // Online: la vista local puede ser el slot 4..15; con el switch original solo llegaban los slots 0-3 y el
+        // contador de vueltas del HUD se quedaba en "1/3" para el resto (los jugadores 5 a 16).
+        if (playerId >= PLAYER_ONE && playerId < MAX_PLAYERS) {
+            func_8005CB60(playerId, gLapCountByPlayerId[playerId]);
         }
     }
 }

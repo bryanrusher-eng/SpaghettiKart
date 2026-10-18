@@ -971,6 +971,10 @@ void player_use_item(Player* player) {
         case ITEM_TRIPLE_RED_SHELL:
             use_triple_shell_item(player, ACTOR_TRIPLE_RED_SHELL);
             break;
+        case ITEM_SWAP:
+        case ITEM_MIRROR:
+            online_special_apply((s32) player->currentItemCopy, playerId); // items especiales de la carrera en red
+            break;
     }
     consume_item(playerId);
 }

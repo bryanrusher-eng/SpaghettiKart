@@ -23,6 +23,7 @@ struct PeerInfo {
     bool isSelf;
     int character = 0;  // personaje elegido (0..7); varios jugadores pueden repetirlo
     int wins = 0;       // carreras ganadas en esta sala
+    int quality = 0;    // conexion hasta el servidor: 0 = estable, 1 = floja (ping alto o irregular), 2 = muy floja
 };
 
 // Crea una sala. Devuelve false y rellena err si falla (puerto ocupado, etc.).
@@ -66,6 +67,16 @@ void Tick();
 
 Role GetRole();
 bool IsConnected();   // Host: siempre true; Cliente: true cuando el anfitrion ya acepto
+bool IsWaitingForRace(); // Cliente rechazado por "hay una carrera en curso": reintenta solo y entra al terminar
+// Idioma de los textos que la red muestra al jugador (estado de la conexion): 0 = espanol, 1 = ingles.
+void SetLanguage(int lang);
+int GetLanguage();
+// Ping maximo de la sala (ms hasta el servidor; 0 = sin limite). Solo lo aplica el anfitrion, y solo fuera de las carreras:
+// el jugador que lo supere 6 s seguidos sale de la sala con un aviso.
+void SetPingLimit(int ms);
+int GetPingLimit();
+// Aviso de conexion inestable para esta PC durante una carrera: 0 = nada, 1 = floja, 2 = muy floja. Dura unos segundos.
+int ConnectionWarning();
 int GetLocalSlot();   // -1 si no hay sesion
 
 // Lista de jugadores de la sala, incluido uno mismo.
@@ -105,6 +116,8 @@ struct RaceParams {
     uint8_t cc = 1;      // 0=50cc, 1=100cc, 2=150cc, 3=extra
     uint16_t seed = 1;   // semilla del generador aleatorio del juego
     uint8_t delay = 4;   // retraso de mandos en fotogramas (a 30 fps, 4 = ~133 ms)
+    uint8_t chaos = 0;   // 1 = Modo Chaos (sin items en la pista; cada 12 s todos reciben uno)
+    uint8_t bots = 1;    // 1 = los puestos que faltan hasta 16 karts se llenan con CPUs; 0 = solo karts de jugadores
     std::vector<RaceHuman> humans;
 };
 

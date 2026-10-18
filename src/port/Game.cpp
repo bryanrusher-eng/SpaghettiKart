@@ -59,6 +59,16 @@ extern "C" void Graphics_PushFrame(Gfx* pool) {
     GameEngine::ProcessGfxCommands(pool);
 }
 
+#if defined(_MSC_VER) && defined(_M_X64)
+#include <math.h>
+// Online: el C runtime de Windows elige, segun la CPU, una version de asinf/acosf/logf/sin/cos/pow... con instrucciones FMA3
+// cuyo ultimo decimal no coincide con el de una CPU sin FMA (p. ej. un Celeron). Como la simulacion es identica en todas las
+// PCs, se desactiva siempre: todas usan la misma version. Se ejecuta antes de main. SK_ONLINE_FMA=1 lo deja como estaba (pruebas).
+namespace {
+const int sForceNoFma = (getenv("SK_ONLINE_FMA") != nullptr) ? 0 : _set_FMA3_enable(0);
+}
+#endif
+
 // Create the world instance
 static World sWorldInstance;
 

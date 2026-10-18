@@ -17,9 +17,20 @@ int online_race_setup_active(void);
 // En carrera online la simulacion NO debe depender de la camara de cada PC (que objetos estan "cerca", "a la vista",
 // en la misma seccion...): devuelve 1 cuando hay que simular todo el circuito siempre.
 int online_no_cull(void);
+// Carrera en red "sin bots": solo existen los karts de los jugadores (el anfitrion lo elige al iniciar la carrera).
+int online_no_bots(void);
 // Pruebas (variables de entorno SK_ONLINE_TEST_ITEMS): dar un item justo antes de comprobar si se usa, y anotar cada uso.
 void online_test_give_item(int slot, unsigned short buttonPressed);
 void online_note_item_use(int slot, int item);
+// Modo Chaos (lo decide el anfitrion al iniciar la carrera): las cajas de la pista no dan items y cada 12 s todos reciben uno.
+int online_chaos_active(void);
+// Sorteo de un item especial para quien saca item: ITEM_NONE (0) = item normal, ITEM_SWAP (5 %) o ITEM_MIRROR (15 %).
+// Gasta numeros del generador aleatorio de la simulacion, igual en todas las PCs. Fuera de carrera en red devuelve 0.
+int online_special_roll(int playerId);
+// Modo Chaos: item normal sin importar el puesto, con el rayo y el caparazon azul limitados (ver online_race.c).
+short online_chaos_item_roll(void);
+// Aplica el efecto de un item especial USADO por 'playerId' (kind = ITEM_SWAP o ITEM_MIRROR).
+void online_special_apply(int kind, int playerId);
 // Cuantos jugadores pueden usar items (hasta 16 en carrera en red; SK_ONLINE_OLD_ITEMS=1 reproduce el limite antiguo de 4).
 int online_item_player_count(void);
 // Lee una opcion del juego que afecta a la simulacion: en carrera en red devuelve siempre el valor por defecto.
@@ -63,6 +74,7 @@ void online_check_end(void);
 // Datos para dibujar encima del juego (nombres sobre los karts y tabla de posiciones).
 typedef struct OnlineKartView {
     int human;     // 1 si lo maneja un jugador humano
+    int exists;    // 0 si ese puesto no tiene kart (carrera "sin bots")
     int character; // 0..7 (Mario, Luigi, Yoshi, Toad, DK, Wario, Peach, Bowser)
     int rank;      // 0 = primero
     int lap;       // vuelta actual (1..3)
@@ -73,6 +85,13 @@ typedef struct OnlineViewData {
     int localSlot;
     int lHeld;     // 1 mientras se mantiene el boton L
     int exitPrompt; // 0 = nada; 1 = el anfitrion va a terminar la carrera para todos; 2 = el jugador va a salir solo
+    int chaos;         // 1 = Modo Chaos
+    int chaosLeft;     // ticks que faltan para el proximo evento de Chaos (0 si no es Chaos)
+    int bannerKind;    // 0 = nada; 1 = Swap; 2 = Espejo; 3 = evento de Chaos
+    int bannerA;       // slot que saco el item
+    int bannerB;       // slot afectado (el que cambia de sitio con A / el que tiene los controles invertidos)
+    int bannerAge;     // ticks desde que salio el aviso
+    int mirrorLeft;    // ticks que le quedan de controles invertidos a esta PC (0 = normales)
     float camPos[3];
     float camLook[3];
     float camUp[3];

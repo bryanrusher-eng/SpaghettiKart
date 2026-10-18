@@ -63,6 +63,11 @@ uint16_t ClampPort(int p) {
     if (p > 65535) p = 65535;
     return static_cast<uint16_t>(p);
 }
+
+// Texto segun el idioma elegido en el menu online (0 = espanol, 1 = ingles).
+const char* T(const char* es, const char* en) {
+    return Net::GetLanguage() == 1 ? en : es;
+}
 } // namespace
 
 void OnlineWindow::DrawElement() {
@@ -81,44 +86,44 @@ void OnlineWindow::DrawElement() {
     }
 
     if (role == Net::Role::None) {
-        ImGui::InputText("Tu nombre", st.name, sizeof(st.name));
+        ImGui::InputText(T("Tu nombre", "Your name"), st.name, sizeof(st.name));
 
         ImGui::Spacing();
-        ImGui::RadioButton("Con servidor (codigo de sala)", &st.mode, 0);
+        ImGui::RadioButton(T("Con servidor (codigo de sala)", "With server (room code)"), &st.mode, 0);
         ImGui::SameLine();
-        ImGui::RadioButton("Directo (IP y puerto)", &st.mode, 1);
+        ImGui::RadioButton(T("Directo (IP y puerto)", "Direct (IP and port)"), &st.mode, 1);
         ImGui::Spacing();
 
         if (st.mode == 0) {
-            ImGui::InputText("Servidor", st.relay, sizeof(st.relay));
-            ImGui::InputInt("Puerto del servidor", &st.relayPort, 0, 0);
+            ImGui::InputText(T("Servidor", "Server"), st.relay, sizeof(st.relay));
+            ImGui::InputInt(T("Puerto del servidor", "Server port"), &st.relayPort, 0, 0);
             if (st.relay[0] == '\0') {
-                ImGui::TextDisabled("Escribe la direccion del servidor (IP o nombre).");
+                ImGui::TextDisabled(T("Escribe la direccion del servidor (IP o nombre).", "Enter the server address (IP or name)."));
             }
             ImGui::Separator();
 
-            ImGui::SliderInt("Jugadores maximos", &st.maxPlayers, 2, Net::kMaxPlayers);
+            ImGui::SliderInt(T("Jugadores maximos", "Max players"), &st.maxPlayers, 2, Net::kMaxPlayers);
             Net::SetMaxPlayers(st.maxPlayers);
-            ImGui::TextDisabled("Cuantos jugadores admite tu sala (de 2 a 16).");
-            ImGui::Checkbox("Mostrar mi sala en la lista de salas", &st.roomVisible);
+            ImGui::TextDisabled(T("Cuantos jugadores admite tu sala (de 2 a 16).", "How many players your room accepts (2 to 16)."));
+            ImGui::Checkbox(T("Mostrar mi sala en la lista de salas", "Show my room in the room list"), &st.roomVisible);
             Net::SetRoomVisible(st.roomVisible);
-            if (ImGui::Button("Crear sala")) {
+            if (ImGui::Button(T("Crear sala", "Create room"))) {
                 SaveSettings(st);
                 lastError.clear();
                 if (st.relay[0] == '\0') {
-                    lastError = "falta la direccion del servidor";
+                    lastError = T("falta la direccion del servidor", "server address missing");
                 } else {
                     Net::StartHostRelay(st.relay, ClampPort(st.relayPort), st.name, lastError);
                 }
             }
             ImGui::Separator();
 
-            ImGui::InputText("Codigo de sala", st.code, sizeof(st.code), ImGuiInputTextFlags_CharsUppercase);
-            if (ImGui::Button("Unirse")) {
+            ImGui::InputText(T("Codigo de sala", "Room code"), st.code, sizeof(st.code), ImGuiInputTextFlags_CharsUppercase);
+            if (ImGui::Button(T("Unirse", "Join"))) {
                 SaveSettings(st);
                 lastError.clear();
                 if (st.relay[0] == '\0') {
-                    lastError = "falta la direccion del servidor";
+                    lastError = T("falta la direccion del servidor", "server address missing");
                 } else {
                     Net::StartJoinRelay(st.relay, ClampPort(st.relayPort), st.code, st.name, lastError);
                 }
@@ -129,25 +134,25 @@ void OnlineWindow::DrawElement() {
             if (std::getenv("SK_ONLINE_IMGUI_ROOMS") != nullptr) {
                 ImGui::SetNextItemOpen(true, ImGuiCond_Always); // pruebas: abre la lista de salas sola
             }
-            if (ImGui::CollapsingHeader("Buscar salas")) {
+            if (ImGui::CollapsingHeader(T("Buscar salas", "Find rooms"))) {
                 if (Net::GetRoomSearchState() == Net::RoomSearchState::Idle) {
                     Net::RoomSearchStart(st.relay, ClampPort(st.relayPort));
                 }
                 Net::RoomSearchState rs = Net::GetRoomSearchState();
                 if (rs == Net::RoomSearchState::Searching) {
-                    ImGui::TextDisabled("Buscando salas...");
+                    ImGui::TextDisabled(T("Buscando salas...", "Searching rooms..."));
                 } else if (rs == Net::RoomSearchState::Failed) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "No se pudo obtener la lista: %s",
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), T("No se pudo obtener la lista: %s", "Could not get the list: %s"),
                                        Net::GetRoomSearchError().c_str());
                 } else if (Net::GetRooms().empty()) {
-                    ImGui::TextDisabled("No hay salas disponibles. Crea una o escribe un codigo.");
+                    ImGui::TextDisabled(T("No hay salas disponibles. Crea una o escribe un codigo.", "No rooms available. Create one or enter a code."));
                 }
                 if (!Net::GetRooms().empty() &&
                     ImGui::BeginTable("##rooms", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                    ImGui::TableSetupColumn("Codigo");
-                    ImGui::TableSetupColumn("Anfitrion");
-                    ImGui::TableSetupColumn("Jugadores");
-                    ImGui::TableSetupColumn("Estado");
+                    ImGui::TableSetupColumn(T("Codigo", "Code"));
+                    ImGui::TableSetupColumn(T("Anfitrion", "Host"));
+                    ImGui::TableSetupColumn(T("Jugadores", "Players"));
+                    ImGui::TableSetupColumn(T("Estado", "Status"));
                     ImGui::TableSetupColumn("##unirse");
                     ImGui::TableHeadersRow();
                     for (const Net::RoomInfo& r : Net::GetRooms()) {
@@ -157,14 +162,14 @@ void OnlineWindow::DrawElement() {
                         ImGui::TableSetColumnIndex(0);
                         ImGui::TextUnformatted(r.code.c_str());
                         ImGui::TableSetColumnIndex(1);
-                        ImGui::TextUnformatted(r.name.empty() ? "(sin nombre)" : r.name.c_str());
+                        ImGui::TextUnformatted(r.name.empty() ? T("(sin nombre)", "(no name)") : r.name.c_str());
                         ImGui::TableSetColumnIndex(2);
                         ImGui::Text("%d / %d", r.players, r.maxPlayers);
                         ImGui::TableSetColumnIndex(3);
-                        ImGui::TextUnformatted(r.racing ? "En carrera" : (full ? "Llena" : "Esperando"));
+                        ImGui::TextUnformatted(r.racing ? T("En carrera", "Racing") : (full ? T("Llena", "Full") : T("Esperando", "Waiting")));
                         ImGui::TableSetColumnIndex(4);
                         ImGui::BeginDisabled(closed);
-                        const std::string label = "Unirse##" + r.code;
+                        const std::string label = std::string(T("Unirse", "Join")) + "##" + r.code;
                         if (ImGui::SmallButton(label.c_str())) {
                             SaveSettings(st);
                             lastError.clear();
@@ -179,54 +184,66 @@ void OnlineWindow::DrawElement() {
                 Net::RoomSearchStop();
             }
         } else {
-            ImGui::InputInt("Puerto", &st.port, 0, 0);
-            ImGui::SliderInt("Jugadores maximos", &st.maxPlayers, 2, Net::kMaxPlayers);
+            ImGui::InputInt(T("Puerto", "Port"), &st.port, 0, 0);
+            ImGui::SliderInt(T("Jugadores maximos", "Max players"), &st.maxPlayers, 2, Net::kMaxPlayers);
             Net::SetMaxPlayers(st.maxPlayers);
-            ImGui::TextDisabled("Hay que abrir el puerto UDP en tu router, o usar una VPN.");
-            if (ImGui::Button("Crear sala (Host)")) {
+            ImGui::TextDisabled(T("Hay que abrir el puerto UDP en tu router, o usar una VPN.", "You must open the UDP port on your router, or use a VPN."));
+            if (ImGui::Button(T("Crear sala (Host)", "Create room (Host)"))) {
                 SaveSettings(st);
                 lastError.clear();
                 Net::StartHost(ClampPort(st.port), st.name, lastError);
             }
             ImGui::Separator();
-            ImGui::InputText("IP del anfitrion", st.ip, sizeof(st.ip));
-            if (ImGui::Button("Unirse (Join)")) {
+            ImGui::InputText(T("IP del anfitrion", "Host IP"), st.ip, sizeof(st.ip));
+            if (ImGui::Button(T("Unirse (Join)", "Join"))) {
                 SaveSettings(st);
                 lastError.clear();
                 Net::StartJoin(st.ip, ClampPort(st.port), st.name, lastError);
             }
-            ImGui::TextDisabled("Para jugar en la misma PC usa 127.0.0.1");
+            ImGui::TextDisabled(T("Para jugar en la misma PC usa 127.0.0.1", "To play on the same PC use 127.0.0.1"));
         }
         if (!lastError.empty()) {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "Error: %s", lastError.c_str());
         }
     } else {
         if (Net::IsRelay() && !Net::GetRoomCode().empty()) {
-            ImGui::Text("Codigo de sala:");
+            ImGui::Text(T("Codigo de sala:", "Room code:"));
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.6f, 1.0f), "%s", Net::GetRoomCode().c_str());
             ImGui::SameLine();
-            if (ImGui::SmallButton("Copiar")) {
+            if (ImGui::SmallButton(T("Copiar", "Copy"))) {
                 ImGui::SetClipboardText(Net::GetRoomCode().c_str());
             }
             if (role == Net::Role::Host) {
-                ImGui::TextDisabled("Pasale este codigo a tus amigos.");
+                ImGui::TextDisabled(T("Pasale este codigo a tus amigos.", "Give this code to your friends."));
             }
         }
         if (role == Net::Role::Host) {
             static int cup = 0, track = 1, cc = 1;
-            static const char* cupNames[] = { "Copa Champinon", "Copa Flor", "Copa Estrella", "Copa Especial" };
+            const char* cupNames[] = { T("Copa Champinon", "Mushroom Cup"), T("Copa Flor", "Flower Cup"), T("Copa Estrella", "Star Cup"), T("Copa Especial", "Special Cup") };
             static const char* ccNames[] = { "50cc", "100cc", "150cc" };
             ImGui::Separator();
-            ImGui::Combo("Copa", &cup, cupNames, 4);
-            ImGui::SliderInt("Pista de la copa", &track, 1, 4);
-            ImGui::Combo("Cilindrada", &cc, ccNames, 3);
+            ImGui::Combo(T("Copa", "Cup"), &cup, cupNames, 4);
+            ImGui::SliderInt(T("Pista de la copa", "Track in the cup"), &track, 1, 4);
+            ImGui::Combo(T("Cilindrada", "Engine class"), &cc, ccNames, 3);
+            bool chaos = CVarGetInteger("gOnline.Chaos", 0) != 0;
+            if (ImGui::Checkbox(T("Modo Chaos (sin items en la pista; cada 12 s todos reciben uno)", "Chaos mode (no item boxes; every 12 s everyone gets an item)"), &chaos)) {
+                CVarSetInteger("gOnline.Chaos", chaos ? 1 : 0);
+                CVarSave();
+            }
+            bool bots = CVarGetInteger("gOnline.Bots", 1) != 0;
+            if (ImGui::Checkbox(T("Bots (CPUs hasta completar 16 karts; sin ellos solo corren los jugadores)", "Bots (CPUs fill up to 16 karts; without them only the players race)"), &bots)) {
+                CVarSetInteger("gOnline.Bots", bots ? 1 : 0);
+                CVarSave();
+            }
             if (!Net::RaceActive()) {
-                if (ImGui::Button("Iniciar carrera")) {
+                if (ImGui::Button(T("Iniciar carrera", "Start race"))) {
                     Net::RaceParams p;
                     p.cup = static_cast<uint8_t>(cup);
                     p.track = static_cast<uint8_t>(track - 1);
                     p.cc = static_cast<uint8_t>(cc);
+                    p.chaos = chaos ? 1 : 0;
+                    p.bots = bots ? 1 : 0;
                     p.delay = static_cast<uint8_t>(Net::SuggestDelay());
                     p.seed = static_cast<uint16_t>(static_cast<int>(ImGui::GetTime() * 1000.0)) | 1;
                     for (const Net::PeerInfo& pi : Net::GetPeers()) p.humans.push_back({ pi.slot, pi.slot % 8 });
@@ -234,29 +251,29 @@ void OnlineWindow::DrawElement() {
                 }
             }
         }
-        if (ImGui::Button("Desconectar")) {
+        if (ImGui::Button(T("Desconectar", "Disconnect"))) {
             Net::Disconnect();
         }
     }
 
     ImGui::Spacing();
-    ImGui::Text("Estado: %s", Net::GetStatus().c_str());
+    ImGui::Text(T("Estado: %s", "Status: %s"), Net::GetStatus().c_str());
 
     std::vector<Net::PeerInfo> peers = Net::GetPeers();
     if (!peers.empty()) {
         ImGui::Spacing();
-        ImGui::Text("Jugadores en la sala: %d / %d", static_cast<int>(peers.size()), Net::GetMaxPlayers());
+        ImGui::Text(T("Jugadores en la sala: %d / %d", "Players in the room: %d / %d"), static_cast<int>(peers.size()), Net::GetMaxPlayers());
         if (ImGui::BeginTable("##peers", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
             ImGui::TableSetupColumn("Slot");
-            ImGui::TableSetupColumn("Nombre");
+            ImGui::TableSetupColumn(T("Nombre", "Name"));
             ImGui::TableSetupColumn("Ping (ms)");
             ImGui::TableHeadersRow();
             for (const Net::PeerInfo& p : peers) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("%d%s", p.slot, p.slot == 0 ? " (anfitrion)" : "");
+                ImGui::Text("%d%s", p.slot, p.slot == 0 ? T(" (anfitrion)", " (host)") : "");
                 ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%s%s", p.name.c_str(), p.isSelf ? " (tu)" : "");
+                ImGui::Text("%s%s", p.name.c_str(), p.isSelf ? T(" (tu)", " (you)") : "");
                 ImGui::TableSetColumnIndex(2);
                 if (p.isSelf && p.slot == 0) {
                     ImGui::TextUnformatted("-");
@@ -269,7 +286,7 @@ void OnlineWindow::DrawElement() {
     }
 
     ImGui::Spacing();
-    if (ImGui::CollapsingHeader("Registro")) {
+    if (ImGui::CollapsingHeader(T("Registro", "Log"))) {
         const std::vector<std::string>& log = Net::GetLog();
         ImGui::BeginChild("##netlog", ImVec2(0, 120), true);
         for (const std::string& line : log) {

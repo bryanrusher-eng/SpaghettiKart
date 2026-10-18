@@ -134,3 +134,7 @@ out/
 
 compile_commands.json
 dist/
+
+# Python
+__pycache__/
+*.pyc

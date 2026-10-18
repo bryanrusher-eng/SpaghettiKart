@@ -90,7 +90,11 @@ GameEngine::GameEngine() {
 #endif
 
 #ifdef _WIN32
-    AllocConsole();
+    // La ventana negra de consola (el registro del motor) ya no sale sola: solo si se pide con la variable de entorno
+    // SK_CONSOLE o con un archivo "consola.txt" junto al .exe. Asi el juego se abre como un programa normal.
+    if (std::getenv("SK_CONSOLE") != nullptr || GetFileAttributesA("consola.txt") != INVALID_FILE_ATTRIBUTES) {
+        AllocConsole();
+    }
 #endif
 
     this->context->InitConfiguration();    // without this line InitConsoleVariables fails at Config::Reload()

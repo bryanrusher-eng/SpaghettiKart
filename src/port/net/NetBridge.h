@@ -13,6 +13,8 @@ typedef struct NetBridgeRace {
     unsigned char track;
     unsigned char cc;
     unsigned char delay;
+    unsigned char chaos; // 1 = Modo Chaos
+    unsigned char bots;  // 1 = con CPUs hasta 16 karts; 0 = solo karts de jugadores
     unsigned short seed;
     int numHumans;
     int slot[16];

@@ -565,10 +565,14 @@ void spawn_players_gp_one_player(f32* arg0, f32* arg1, f32 arg2) {
             s32 isHuman = online_race_setup_active() ? online_slot_is_human(i) : (i == 0);
             s32 character = isHuman ? (online_race_setup_active() ? online_slot_character(i) : gCharacterSelections[0])
                                     : chooseCPUPlayers[(i > 0) ? (i - 1) : 0];
+            // Carrera online "sin bots": los puestos que no son de un jugador no existen (tipo 0), no se simulan ni se dibujan.
+            s32 noKart = online_no_bots() && !isHuman;
+
             spawn_player(&gPlayers[i], i, arg0[D_80165270[columnSlot]], arg1[D_80165270[i]] + 250.0f, arg2, 32768.0f,
                          character,
-                         (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE |
-                          (isHuman ? PLAYER_HUMAN : PLAYER_CPU)));
+                         noKart ? PLAYER_INACTIVE
+                                : (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE |
+                                   (isHuman ? PLAYER_HUMAN : PLAYER_CPU)));
         }
         D_80164A28 = 1;
     }

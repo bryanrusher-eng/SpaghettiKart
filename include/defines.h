@@ -319,7 +319,9 @@ enum ITEMS {
     /* 0x0D */ ITEM_DOUBLE_MUSHROOM,
     /* 0x0E */ ITEM_TRIPLE_MUSHROOM,
     /* 0x0F */ ITEM_SUPER_MUSHROOM,
-    /* 0x0G */ ITEM_MAX,
+    /* 0x10 */ ITEM_SWAP,   // solo en carrera en red: Swap legendario (cambia de lugar con un kart al azar)
+    /* 0x11 */ ITEM_MIRROR, // solo en carrera en red: Espejo (invierte los controles de un jugador al azar)
+    /* 0x12 */ ITEM_MAX,
 };
 
 enum CPU_BEHAVIOURS {

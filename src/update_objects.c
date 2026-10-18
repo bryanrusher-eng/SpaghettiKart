@@ -79,6 +79,12 @@ Vtx D_800E44B0[] = {
     { { { -24, 20, 0 }, 0, { 3008, 2496 }, { 0xFF, 0xFF, 0xFF, 0xFF } } },
 };
 
+// Iconos de los items especiales de la carrera en red (recursos del mod spaghetti-places16, mismo formato que los del juego).
+static const char sItemSwapTLUT[] = "__OTR__textures/common_data/common_tlut_item_window_swap";
+static const char sItemMirrorTLUT[] = "__OTR__textures/common_data/common_tlut_item_window_mirror";
+static const char sItemSwapTexture[] = "__OTR__textures/common_data/common_texture_item_window_swap";
+static const char sItemMirrorTexture[] = "__OTR__textures/common_data/common_texture_item_window_mirror";
+
 const char* gItemWindowTLUTs[] = { common_tlut_item_window_none,
                                    common_tlut_item_window_banana,
                                    common_tlut_item_window_banana_bunch,
@@ -94,7 +100,9 @@ const char* gItemWindowTLUTs[] = { common_tlut_item_window_none,
                                    common_tlut_item_window_mushroom,
                                    common_tlut_item_window_double_mushroom,
                                    common_tlut_item_window_triple_mushroom,
-                                   common_tlut_item_window_super_mushroom };
+                                   common_tlut_item_window_super_mushroom,
+                                   sItemSwapTLUT,
+                                   sItemMirrorTLUT };
 
 const char* gItemWindowTextures[] = { common_texture_item_window_none,
                                       common_texture_item_window_banana,
@@ -111,7 +119,9 @@ const char* gItemWindowTextures[] = { common_texture_item_window_none,
                                       common_texture_item_window_mushroom,
                                       common_texture_item_window_double_mushroom,
                                       common_texture_item_window_triple_mushroom,
-                                      common_texture_item_window_super_mushroom };
+                                      common_texture_item_window_super_mushroom,
+                                      sItemSwapTexture,
+                                      sItemMirrorTexture };
 
 u16* gHudLapTextures[] = { common_texture_hud_lap_1_on_3, common_texture_hud_lap_2_on_3,
                            common_texture_hud_lap_3_on_3 };
@@ -2401,11 +2411,22 @@ void consume_item(s32 playerId) {
 s16 func_8007AFB0(s32 objectIndex, s32 playerId) {
     UNUSED s32 pad[3];
     s16 randomItem;
+    int special = 0; // 0 = item normal (ver online_special_roll)
 
-    randomItem = RaceManager_GetRandomHumanItem(gGPCurrentRaceRankByPlayerId[playerId]);
-
-    if (randomItem == ITEM_NONE) {
-        play_sound2(SOUND_MENU_FILE_NOT_FOUND);
+    // Carrera en red: antes del item normal se sortea si toca un especial (5 % Swap, 15 % Espejo). Si hay un item forzado
+    // (p. ej. el globo aerostatico de Luigi Raceway, que siempre da el caparazon azul) no se sortea.
+    if (playerHUD[playerId].itemOverride == 0) {
+        special = online_special_roll(playerId);
+    }
+    if (special != 0) {
+        randomItem = (s16) special; // ITEM_SWAP o ITEM_MIRROR: se queda en el cuadro de items; el efecto sale al usarlo
+    } else {
+        // Modo Chaos: sorteo plano (sin importar el puesto y con el rayo limitado); el resto de carreras usa la tabla del juego.
+        randomItem = online_chaos_active() ? online_chaos_item_roll()
+                                           : RaceManager_GetRandomHumanItem(gGPCurrentRaceRankByPlayerId[playerId]);
+        if (randomItem == ITEM_NONE) {
+            play_sound2(SOUND_MENU_FILE_NOT_FOUND);
+        }
     }
 
     if (playerHUD[playerId].itemOverride != 0) {

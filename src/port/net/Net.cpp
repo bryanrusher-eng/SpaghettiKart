@@ -43,7 +43,7 @@ namespace Net {
 namespace {
 
 constexpr uint32_t kMagic = 0x314E4B4D; // "MKN1"
-constexpr uint16_t kProtocolVersion = 4;
+constexpr uint16_t kProtocolVersion = 6; // 6: RaceParams lleva "con bots / sin bots". 5: Modo Chaos (y el servidor sube/baja el retraso)
 
 enum PacketType : uint8_t {
     PKT_HELLO = 1,   // cliente -> host: version, nombre
@@ -61,6 +61,7 @@ enum PacketType : uint8_t {
     PKT_LEFT = 13,        // host -> clientes: un jugador salio de la carrera
     PKT_ABORT = 14,       // host -> clientes: el anfitrion termino la carrera para todos (vuelta al lobby)
     PKT_RACE_LEAVE = 15,  // cliente -> host: salgo de la carrera (sigo en la sala)
+    PKT_KICK = 16,        // host -> cliente: te saco de la sala (motivo + ping maximo)
 };
 
 // Protocolo del servidor de rele (ver server/relay_server.py)
@@ -127,6 +128,9 @@ struct Peer {
     uint64_t lastRecv = 0;
     uint64_t lastPingSent = 0;
     uint32_t ping = 0;
+    uint32_t relayRtt = 0; // ping de ese jugador hasta el rele (lo manda el en su PONG; 0 = no lo manda)
+    uint32_t relayDev = 0; // irregularidad (desviacion media, ms) de ese ping, tambien en su PONG
+    uint64_t overSince = 0; // desde cuando supera el ping maximo de la sala (0 = no lo supera)
     int character = 0;
     uint64_t lastInput = 0; // ultima vez que llegaron mandos de este jugador en carrera
 };
@@ -138,6 +142,12 @@ Role g_role = Role::None;
 bool g_wsaReady = false;
 
 std::string g_status = "Desconectado";
+int g_lang = 0; // idioma de los textos que se muestran al jugador: 0 = espanol, 1 = ingles (ver SetLanguage)
+
+// Elige el texto segun el idioma (los mensajes del registro, que son para quien depura, se quedan en espanol).
+std::string TR(const char* es, const char* en) {
+    return std::string(g_lang == 1 ? en : es);
+}
 std::vector<std::string> g_log;
 std::string g_myName;
 int g_myCharacter = 0; // personaje del jugador local
@@ -153,6 +163,8 @@ int g_cpuWins = 0;               // victorias de los CPU (todos juntos); lo repa
 int g_cpuWinsRoster = 0;         // cliente: lo ultimo que informo el anfitrion
 int g_wins[kMaxPlayers] = { 0 }; // victorias por slot (la cuenta la lleva el anfitrion y la reparte)
 std::string g_raceNames[kMaxPlayers]; // nombres al empezar la carrera (para los resultados)
+RaceParams g_queuedStart;            // host: inicio de carrera pedido mientras la anterior aun esta en su espera de cierre
+bool g_hasQueuedStart = false;
 uint64_t g_raceEndAt = 0;             // host: cuando cerrar la carrera de verdad (0 = no)
 uint16_t g_droppedMask = 0;
 struct PendingLeft {
@@ -179,6 +191,23 @@ uint64_t g_rStart = 0;
 uint64_t g_rLastSend = 0;
 uint64_t g_rLastKeep = 0;
 uint64_t g_rLastRecv = 0;
+uint64_t g_rKeepSentAt = 0; // cuando se mando el ultimo keepalive al rele (el rele lo devuelve: eso da el RTT hasta el)
+uint32_t g_relayRtt = 0;    // RTT suavizado de esta PC hasta el rele en ms (0 = aun no se sabe)
+uint32_t g_relayDev = 0;    // irregularidad suavizada de ese RTT (desviacion media en ms)
+uint64_t g_connWarnUntil = 0; // hasta cuando se muestra el aviso de conexion inestable en carrera
+int g_connWarnLevel = 0;
+int g_pingLimit = 0;        // anfitrion: ping maximo de la sala en ms (0 = sin limite)
+constexpr uint64_t kKickOverMs = 6000;   // tiempo seguido por encima del maximo antes de sacar a un jugador
+constexpr uint64_t kConnWarnMs = 8000;   // cuanto dura el aviso tras la ultima senal de conexion inestable
+
+// Calidad de una conexion segun su ping y su irregularidad (medidos hasta el servidor).
+// Referencias de la noche del 14: los jugadores buenos tenian una desviacion de 3 a 10 ms; los que daban tirones, de 22 a 150.
+int QualityOf(uint32_t rtt, uint32_t dev) {
+    if (rtt == 0) return 0;
+    if (dev >= 50 || rtt >= 400) return 2;
+    if (dev >= 25 || rtt >= 250) return 1;
+    return 0;
+}
 
 // Busqueda de salas (socket propio: funciona sin estar dentro de una sala)
 bool g_roomVisible = true;
@@ -194,6 +223,10 @@ uint64_t g_listLastQuery = 0; // ultima vez que una pantalla miro la lista (si n
 
 // Cliente
 ClientState g_cstate = ClientState::Idle;
+bool g_waitRace = false;           // cliente: el anfitrion lo rechazo por carrera en curso; sigue en la sala y reintenta el HELLO
+uint64_t g_waitRaceSince = 0;      // cuando empezo esa espera (tope: kWaitRaceMaxMs)
+constexpr uint64_t kWaitRaceMaxMs = 600000; // una carrera dura ~3 min: 10 min de espera como maximo
+constexpr uint64_t kWaitRaceRetryMs = 2000;
 sockaddr_in g_server;
 uint64_t g_cStart = 0;
 uint64_t g_lastHello = 0;
@@ -363,6 +396,14 @@ void StatsMaybeWrite(uint64_t nowMs) {
 }
 
 void Log(const std::string& line) {
+    // Pruebas: SK_NET_LOGFILE=archivo copia cada linea del registro de red (con la hora en ms) a ese archivo.
+    static const char* const sink = std::getenv("SK_NET_LOGFILE");
+    if (sink != nullptr) {
+        if (FILE* f = std::fopen(sink, "a")) {
+            std::fprintf(f, "%llu %s\n", static_cast<unsigned long long>(NowMs()), line.c_str());
+            std::fclose(f);
+        }
+    }
     g_log.push_back(line);
     if (g_log.size() > kMaxLogLines) {
         g_log.erase(g_log.begin(), g_log.begin() + (g_log.size() - kMaxLogLines));
@@ -518,6 +559,8 @@ void SendPing(const sockaddr_in& to) {
 void SendPong(const sockaddr_in& to, uint32_t token) {
     Writer w = Begin(PKT_PONG);
     w.u32(token);
+    w.u16(static_cast<uint16_t>(std::min<uint32_t>(g_relayRtt, 65535))); // mi ping hasta el rele (los clientes viejos lo ignoran)
+    w.u8(static_cast<uint8_t>(std::min<uint32_t>(g_relayDev, 255)));      // y lo irregular que es
     SendTo(to, w);
 }
 
@@ -544,11 +587,25 @@ int FreeSlot() {
 
 std::vector<PeerInfo> HostRoster() {
     std::vector<PeerInfo> r;
-    r.push_back({ 0, g_myName, 0, std::string(), true, g_myCharacter, g_wins[0] });
+    // Ping que se muestra en la sala: con servidor es el de cada jugador hasta el rele (lo que de verdad decide su retraso de
+    // mandos), no el que hay entre el y el anfitrion (que suma las dos conexiones).
+    r.push_back({ 0, g_myName, g_viaRelay ? g_relayRtt : 0, std::string(), true, g_myCharacter, g_wins[0] });
+    if (g_viaRelay) r.back().quality = QualityOf(g_relayRtt, g_relayDev);
     std::vector<const Peer*> ps;
     for (auto& kv : g_peers) ps.push_back(&kv.second);
     std::sort(ps.begin(), ps.end(), [](const Peer* a, const Peer* b) { return a->slot < b->slot; });
-    for (const Peer* p : ps) r.push_back({ p->slot, p->name, p->ping, std::string(), false, p->character, g_wins[p->slot] });
+    for (const Peer* p : ps) {
+        uint32_t shown = p->ping;
+        if (g_viaRelay) {
+            if (p->relayRtt > 0) {
+                shown = p->relayRtt;
+            } else if (g_relayRtt > 0 && p->ping > g_relayRtt) {
+                shown = p->ping - g_relayRtt; // cliente viejo: se estima restando la parte del anfitrion
+            }
+        }
+        r.push_back({ p->slot, p->name, shown, std::string(), false, p->character, g_wins[p->slot] });
+        if (g_viaRelay && p->relayRtt > 0) r.back().quality = QualityOf(p->relayRtt, p->relayDev);
+    }
     return r;
 }
 
@@ -561,7 +618,8 @@ void BroadcastRoster() {
     for (auto& p : r) {
         w.u8(static_cast<uint8_t>(p.slot));
         w.str(p.name);
-        w.u16(static_cast<uint16_t>(std::min<uint32_t>(p.pingMs, 65535)));
+        // ping en los 14 bits bajos y la calidad de la conexion en los 2 altos (el formato del paquete no cambia)
+        w.u16(static_cast<uint16_t>(std::min<uint32_t>(p.pingMs, 16383) | (static_cast<uint32_t>(p.quality & 3) << 14)));
         w.u8(static_cast<uint8_t>(p.character));
         w.u8(static_cast<uint8_t>(std::min(p.wins, 255)));
     }
@@ -582,6 +640,13 @@ void ResetState() {
     g_cstate = ClientState::Idle;
     g_mySlot = -1;
     g_myPing = 0;
+    g_relayRtt = 0;
+    g_relayDev = 0;
+    g_connWarnUntil = 0;
+    g_connWarnLevel = 0;
+    g_rKeepSentAt = 0;
+    g_hasQueuedStart = false;
+    g_waitRace = false;
     g_rosterDirty = false;
     g_role = Role::None;
     g_viaRelay = false;
@@ -602,6 +667,8 @@ void WriteStart(Writer& w, const RaceParams& p) {
     w.u8(p.cc);
     w.u16(p.seed);
     w.u8(p.delay);
+    w.u8(p.chaos);
+    w.u8(p.bots);
     w.u8(static_cast<uint8_t>(p.humans.size()));
     for (const RaceHuman& h : p.humans) {
         w.u8(static_cast<uint8_t>(h.slot));
@@ -827,6 +894,8 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
         case PKT_PONG: {
             uint32_t token = r.u32();
             if (r.ok) p.ping = static_cast<uint32_t>(NowMs() & 0xFFFFFFFFu) - token;
+            if (r.ok && r.n - r.i >= 2) p.relayRtt = r.u16(); // su ping hasta el rele (los clientes viejos no lo mandan)
+            if (r.ok && r.n - r.i >= 1) p.relayDev = r.u8();  // y su irregularidad
             break;
         }
         case PKT_BYE:
@@ -925,13 +994,41 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             if (!r.ok || g_cstate == ClientState::Connected) break;
             g_mySlot = slot;
             g_cstate = ClientState::Connected;
-            SetStatus("Conectado a " + KeyOf(g_server) + " como jugador " + std::to_string(slot));
+            g_waitRace = false;
+            SetStatus(TR("Conectado a ", "Connected to ") + KeyOf(g_server) + TR(" como jugador ", " as player ") + std::to_string(slot));
             break;
         }
         case PKT_REJECT: {
             std::string why = r.str();
-            SetStatus("El anfitrion rechazo la conexion: " + why);
+            if (g_cstate == ClientState::Connecting && why == "hay una carrera en curso") {
+                // Llego en plena carrera (o justo cuando empezaba): se queda en la sala, avisa y reintenta solo hasta que
+                // termine, en vez de quedarse en un menu sin explicacion.
+                if (!g_waitRace) {
+                    g_waitRace = true;
+                    g_waitRaceSince = now;
+                    Log("Hay una carrera en curso: se entrara en la siguiente");
+                }
+                g_status = TR("Hay una carrera en curso: entraras en la siguiente", "A race is in progress: you will join the next one");
+                break;
+            }
+            SetStatus(TR("El anfitrion rechazo la conexion: ", "The host rejected the connection: ") + why);
             if (g_viaRelay) SendRelay(R_CLOSE); // el servidor no debe seguir contandome dentro de la sala
+            CloseSock(g_sock);
+            g_sock = kInvalidSock;
+            ResetState();
+            break;
+        }
+        case PKT_KICK: {
+            std::string why = r.str();
+            const uint16_t limit = r.u16();
+            std::string msg = TR("El anfitrion te saco de la sala: ", "The host removed you from the room: ") + why;
+            if (r.ok && limit > 0) {
+                msg = TR("Te sacaron de la sala: tu ping (", "You were removed from the room: your ping (") +
+                      std::to_string(g_relayRtt) + TR(" ms) supera el maximo (", " ms) is above the maximum (") +
+                      std::to_string(limit) + " ms)";
+            }
+            SetStatus(msg);
+            if (g_viaRelay) SendRelay(R_CLOSE);
             CloseSock(g_sock);
             g_sock = kInvalidSock;
             ResetState();
@@ -957,11 +1054,16 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
                 PeerInfo pi;
                 pi.slot = r.u8();
                 pi.name = r.str();
-                pi.pingMs = r.u16();
+                const uint16_t pv = r.u16();
+                pi.pingMs = pv & 0x3FFF;
+                pi.quality = (pv >> 14) & 3;
                 pi.character = r.u8();
                 pi.wins = r.u8();
                 pi.isSelf = (pi.slot == g_mySlot);
-                if (pi.isSelf) pi.pingMs = g_myPing;
+                if (pi.isSelf) {
+                    pi.pingMs = (g_viaRelay && g_relayRtt > 0) ? g_relayRtt : g_myPing;
+                    if (g_viaRelay) pi.quality = QualityOf(g_relayRtt, g_relayDev);
+                }
                 list.push_back(pi);
             }
             if (r.ok) {
@@ -974,7 +1076,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             // El anfitrion termino la carrera para todos: se sale de ella (el juego vuelve al lobby al notarlo).
             if (!(g_race.active || g_race.pending)) break;
             Log("El anfitrion termino la carrera");
-            SetStatus("El anfitrion termino la carrera");
+            SetStatus(TR("El anfitrion termino la carrera", "The host ended the race"));
             g_aggActive = false;
             g_aggDelay = 0;
             g_race = RaceState();
@@ -994,7 +1096,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
                 }
                 AddLeft(0, hostName);
             }
-            SetStatus("El anfitrion cerro la sala");
+            SetStatus(TR("El anfitrion cerro la sala", "The host closed the room"));
             CloseSock(g_sock);
             g_sock = kInvalidSock;
             ResetState();
@@ -1007,6 +1109,8 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             rp.cc = r.u8();
             rp.seed = r.u16();
             rp.delay = r.u8();
+            rp.chaos = r.u8();
+            rp.bots = r.u8();
             int n = r.u8();
             for (int k = 0; k < n && r.ok; k++) {
                 RaceHuman h;
@@ -1074,7 +1178,7 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
             g_roomCode = code;
             g_rphase = RelayPhase::Ready;
             g_rLastKeep = now;
-            SetStatus("Sala creada en el servidor. Codigo: " + code);
+            SetStatus(TR("Sala creada en el servidor. Codigo: ", "Room created on the server. Code: ") + code);
             break;
         }
         case R_JOINED: {
@@ -1088,7 +1192,7 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
                 Log("Sala encontrada: " + g_roomCode);
                 SendHello();
             } else {
-                SetStatus("No se pudo unir: " + msg);
+                SetStatus(TR("No se pudo unir: ", "Could not join: ") + msg);
                 CloseAndReset();
             }
             break;
@@ -1102,6 +1206,21 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
             uint8_t gt = g.u8();
             if (!g.ok) break;
             HandleHostPacket(FakeAddr(cid), gt, g, now);
+            break;
+        }
+        case R_KEEPALIVE: { // el rele devuelve cada keepalive: el tiempo que tarda es el RTT de esta PC hasta el
+            if (g_rKeepSentAt != 0 && now >= g_rKeepSentAt) {
+                const uint32_t s = static_cast<uint32_t>(std::min<uint64_t>(now - g_rKeepSentAt, 1000));
+                if (g_relayRtt == 0) {
+                    g_relayRtt = s;
+                    g_relayDev = 0;
+                } else {
+                    const uint32_t d = s > g_relayRtt ? s - g_relayRtt : g_relayRtt - s;
+                    g_relayDev = (g_relayDev * 3 + d + 2) / 4;      // irregularidad: cuanto se aparta cada muestra de la media
+                    g_relayRtt = (g_relayRtt * 3 + s + 2) / 4;
+                }
+                g_rKeepSentAt = 0;
+            }
             break;
         }
         case R_PING: { // el rele mide el RTT: se devuelve la marca tal cual
@@ -1124,11 +1243,19 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
             // si la carrera ya cargo y todavia no se mando ningun mando, se corrige el retraso
             if (g_race.active && !g_race.anySubmitted) {
                 g_race.delay = g_aggDelay;
-            } else if (g_race.active && g_aggDelay > g_race.delay) {
-                // A media carrera el servidor puede subir el retraso de este jugador (su conexion se degrado): los mandos
-                // que quedan entre el ultimo y el nuevo se mandan neutros (la ventana de SendAggInput los cubre).
+            } else if (g_race.active && g_aggDelay != g_race.delay) {
+                // A media carrera el servidor cambia el retraso de este jugador: lo sube si su conexion se degrado y lo baja
+                // otra vez cuando vuelve a ir bien. RaceSubmitLocal rellena los ticks que faltan al subirlo y no repite los
+                // que ya estan cubiertos al bajarlo.
+                const bool up = g_aggDelay > g_race.delay;
                 g_race.delay = g_aggDelay;
-                Log("El servidor subio tu retraso de entrada a " + std::to_string(g_race.delay) + " ticks");
+                Log(std::string(up ? "El servidor subio" : "El servidor bajo") + " tu retraso de entrada a " +
+                    std::to_string(g_race.delay) + " ticks");
+                if (up) {
+                    // El servidor vio fallar los mandos de esta PC: se avisa al jugador (ver ConnectionWarning)
+                    g_connWarnUntil = now + kConnWarnMs;
+                    g_connWarnLevel = std::max(g_connWarnLevel, g_aggDelay >= 12 ? 2 : 1);
+                }
             }
             break;
         }
@@ -1141,7 +1268,7 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
             // (si no, el juego se quedaria esperando fotogramas que ya no llegaran).
             if (!g_race.active) break;
             Log("El servidor te dio por caido de la carrera");
-            SetStatus("Se perdio la conexion con la carrera");
+            SetStatus(TR("Se perdio la conexion con la carrera", "Lost connection to the race"));
             g_raceEndAt = 0;
             g_aggActive = false;
             g_aggDelay = 0;
@@ -1168,13 +1295,13 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
         }
         case R_ROOM_CLOSED:
             if (g_role == Role::Client) {
-                SetStatus("La sala se cerro");
+                SetStatus(TR("La sala se cerro", "The room was closed"));
                 CloseAndReset();
             }
             break;
         case R_ERROR: {
             std::string m = r.str();
-            SetStatus("Error del servidor: " + m);
+            SetStatus(TR("Error del servidor: ", "Server error: ") + m);
             CloseAndReset();
             break;
         }
@@ -1190,14 +1317,14 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
 bool StartHost(uint16_t port, const std::string& name, std::string& err) {
     Disconnect();
     if (!OpenSocket(port, err)) {
-        SetStatus("No se pudo crear la sala: " + err);
+        SetStatus(TR("No se pudo crear la sala: ", "Could not create the room: ") + err);
         return false;
     }
     g_role = Role::Host;
     g_myName = name.empty() ? "Anfitrion" : name.substr(0, kMaxName);
     g_peers.clear();
     g_lastRoster = NowMs();
-    SetStatus("Sala creada en el puerto " + std::to_string(port) + " (esperando jugadores)");
+    SetStatus(TR("Sala creada en el puerto ", "Room created on port ") + std::to_string(port) + TR(" (esperando jugadores)", " (waiting for players)"));
     return true;
 }
 
@@ -1215,7 +1342,7 @@ bool StartJoin(const std::string& host, uint16_t port, const std::string& name, 
     addrinfo* res = nullptr;
     if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || res == nullptr) {
         err = "no se pudo resolver \"" + host + "\"";
-        SetStatus("No se pudo unir: " + err);
+        SetStatus(TR("No se pudo unir: ", "Could not join: ") + err);
         return false;
     }
     std::memset(&g_server, 0, sizeof(g_server));
@@ -1224,7 +1351,7 @@ bool StartJoin(const std::string& host, uint16_t port, const std::string& name, 
     freeaddrinfo(res);
 
     if (!OpenSocket(0, err)) { // puerto de origen cualquiera
-        SetStatus("No se pudo unir: " + err);
+        SetStatus(TR("No se pudo unir: ", "Could not join: ") + err);
         return false;
     }
     g_role = Role::Client;
@@ -1235,7 +1362,7 @@ bool StartJoin(const std::string& host, uint16_t port, const std::string& name, 
     g_lastPingSent = 0;
     g_mySlot = -1;
     g_roster.clear();
-    SetStatus("Conectando a " + KeyOf(g_server) + "...");
+    SetStatus(TR("Conectando a ", "Connecting to ") + KeyOf(g_server) + "...");
     SendHello();
     return true;
 }
@@ -1244,11 +1371,11 @@ bool StartHostRelay(const std::string& relayHost, uint16_t relayPort, const std:
     RoomSearchStop();
     Disconnect();
     if (!ResolveV4(relayHost, relayPort, g_relay, err)) {
-        SetStatus("No se pudo crear la sala: " + err);
+        SetStatus(TR("No se pudo crear la sala: ", "Could not create the room: ") + err);
         return false;
     }
     if (!OpenSocket(0, err)) {
-        SetStatus("No se pudo crear la sala: " + err);
+        SetStatus(TR("No se pudo crear la sala: ", "Could not create the room: ") + err);
         return false;
     }
     g_viaRelay = true;
@@ -1260,7 +1387,7 @@ bool StartHostRelay(const std::string& relayHost, uint16_t relayPort, const std:
     g_rLastSend = g_rStart;
     g_rLastRecv = g_rStart;
     g_lastRoster = g_rStart;
-    SetStatus("Conectando con el servidor...");
+    SetStatus(TR("Conectando con el servidor...", "Connecting to the server..."));
     SendCreate();
     return true;
 }
@@ -1275,15 +1402,15 @@ bool StartJoinRelay(const std::string& relayHost, uint16_t relayPort, const std:
     }
     if (c.empty()) {
         err = "escribe el codigo de la sala";
-        SetStatus("No se pudo unir: " + err);
+        SetStatus(TR("No se pudo unir: ", "Could not join: ") + err);
         return false;
     }
     if (!ResolveV4(relayHost, relayPort, g_relay, err)) {
-        SetStatus("No se pudo unir: " + err);
+        SetStatus(TR("No se pudo unir: ", "Could not join: ") + err);
         return false;
     }
     if (!OpenSocket(0, err)) {
-        SetStatus("No se pudo unir: " + err);
+        SetStatus(TR("No se pudo unir: ", "Could not join: ") + err);
         return false;
     }
     g_viaRelay = true;
@@ -1301,7 +1428,7 @@ bool StartJoinRelay(const std::string& relayHost, uint16_t relayPort, const std:
     g_lastPingSent = 0;
     g_mySlot = -1;
     g_roster.clear();
-    SetStatus("Buscando la sala " + c + "...");
+    SetStatus(TR("Buscando la sala ", "Looking for room ") + c + "...");
     SendRelay(R_JOIN, c);
     return true;
 }
@@ -1433,7 +1560,7 @@ void Disconnect() {
         g_sock = kInvalidSock;
     }
     if (g_role != Role::None) {
-        SetStatus("Desconectado");
+        SetStatus(TR("Desconectado", "Disconnected"));
     }
     ResetState();
 }
@@ -1461,6 +1588,7 @@ static void AutoStartFromEnv(uint64_t now) {
     std::string err;
     uint16_t p = static_cast<uint16_t>(port ? std::atoi(port) : 7778);
     if (m == "host") {
+        if (const char* pl = std::getenv("SK_ONLINE_PING_LIMIT")) SetPingLimit(std::atoi(pl)); // pruebas del ping maximo
         StartHostRelay(relay ? relay : "127.0.0.1", p, name ? name : "Anfitrion", err);
     } else if (m == "join") {
         StartJoinRelay(relay ? relay : "127.0.0.1", p, code ? code : "", name ? name : "Jugador", err);
@@ -1481,8 +1609,10 @@ int SuggestDelay() {
 // Opcionales: SK_ONLINE_RACE_CUP, SK_ONLINE_RACE_TRACK, SK_ONLINE_RACE_CC, SK_ONLINE_DELAY.
 static void AutoRaceFromEnv(uint64_t now) {
     static uint64_t reachedAt = 0;
+    static bool startedOnce = false; // SK_ONLINE_RACE_ONCE: solo la primera carrera es automatica (las demas las elige el menu)
     const char* n = std::getenv("SK_ONLINE_RACE_PLAYERS");
     if (n == nullptr || g_role != Role::Host || g_race.starting || g_race.active) return;
+    if (startedOnce && std::getenv("SK_ONLINE_RACE_ONCE") != nullptr) return;
     int want = std::atoi(n);
     if (want < 2 || static_cast<int>(g_peers.size()) + 1 < want) {
         reachedAt = 0;
@@ -1496,6 +1626,8 @@ static void AutoRaceFromEnv(uint64_t now) {
     p.track = static_cast<uint8_t>((e = std::getenv("SK_ONLINE_RACE_TRACK")) ? std::atoi(e) : 0);
     p.cc = static_cast<uint8_t>((e = std::getenv("SK_ONLINE_RACE_CC")) ? std::atoi(e) : 1);
     p.delay = static_cast<uint8_t>((e = std::getenv("SK_ONLINE_DELAY")) ? std::atoi(e) : SuggestDelay());
+    p.chaos = std::getenv("SK_ONLINE_CHAOS") != nullptr ? 1 : 0; // pruebas: carrera en Modo Chaos
+    p.bots = (std::getenv("SK_ONLINE_BOTS") != nullptr && std::atoi(std::getenv("SK_ONLINE_BOTS")) == 0) ? 0 : 1; // pruebas: SK_ONLINE_BOTS=0 = sin bots
     p.seed = 1234;
     std::vector<int> slots;
     slots.push_back(0);
@@ -1512,6 +1644,7 @@ static void AutoRaceFromEnv(uint64_t now) {
         }
         p.humans.push_back({ s, ch });
     }
+    startedOnce = true;
     HostStartRace(p);
 }
 
@@ -1612,7 +1745,7 @@ static void TickImpl() {
     if (g_viaRelay) {
         if (g_rphase == RelayPhase::Creating) {
             if (now - g_rStart > kConnectTimeoutMs) {
-                SetStatus("No se pudo contactar con el servidor");
+                SetStatus(TR("No se pudo contactar con el servidor", "Could not reach the server"));
                 CloseAndReset();
             } else if (now - g_rLastSend >= kRelayRetryMs) {
                 SendCreate();
@@ -1622,7 +1755,7 @@ static void TickImpl() {
         }
         if (g_rphase == RelayPhase::Joining) {
             if (now - g_rStart > kConnectTimeoutMs) {
-                SetStatus("No se pudo contactar con el servidor");
+                SetStatus(TR("No se pudo contactar con el servidor", "Could not reach the server"));
                 CloseAndReset();
             } else if (now - g_rLastSend >= kRelayRetryMs) {
                 SendRelay(R_JOIN, g_roomCode);
@@ -1633,11 +1766,20 @@ static void TickImpl() {
         if (now - g_rLastKeep >= kRelayKeepaliveMs) {
             SendRelay(R_KEEPALIVE);
             g_rLastKeep = now;
+            g_rKeepSentAt = now;
         }
         if (now - g_rLastRecv > kRelayTimeoutMs) {
-            SetStatus("Se perdio la conexion con el servidor");
+            SetStatus(TR("Se perdio la conexion con el servidor", "Lost connection to the server"));
             CloseAndReset();
             return;
+        }
+    }
+    if (g_viaRelay && g_race.active) {
+        // Aviso de conexion inestable para el propio jugador (ver ConnectionWarning)
+        const int q = QualityOf(g_relayRtt, g_relayDev);
+        if (q > 0) {
+            g_connWarnUntil = now + kConnWarnMs;
+            g_connWarnLevel = std::max(g_connWarnLevel, q);
         }
     }
     if (g_role == Role::Host) {
@@ -1663,6 +1805,36 @@ static void TickImpl() {
             g_peers.erase(k);
             g_rosterDirty = true;
         }
+        // Ping maximo de la sala: solo fuera de las carreras, solo con servidor y solo a quien manda su ping (clientes nuevos).
+        // Quien lo supera 6 s seguidos sale con un aviso (PKT_KICK); puede volver a entrar cuando su conexion mejore.
+        if (g_pingLimit > 0 && g_viaRelay && !g_race.active && !g_race.pending && !g_race.starting && !g_hasQueuedStart &&
+            g_raceEndAt == 0) {
+            std::vector<std::string> kick;
+            for (auto& kv : g_peers) {
+                Peer& p = kv.second;
+                if (p.relayRtt > static_cast<uint32_t>(g_pingLimit)) {
+                    if (p.overSince == 0) {
+                        p.overSince = now;
+                    } else if (now - p.overSince >= kKickOverMs) {
+                        kick.push_back(kv.first);
+                    }
+                } else {
+                    p.overSince = 0;
+                }
+            }
+            for (auto& k : kick) {
+                Peer& p = g_peers[k];
+                Writer w = Begin(PKT_KICK);
+                w.str("ping demasiado alto");
+                w.u16(static_cast<uint16_t>(g_pingLimit));
+                SendTo(p.addr, w);
+                SendTo(p.addr, w); // por si se pierde uno
+                Log(p.name + " salio de la sala: su ping (" + std::to_string(p.relayRtt) + " ms) supera el maximo (" +
+                    std::to_string(g_pingLimit) + " ms)");
+                g_peers.erase(k);
+                g_rosterDirty = true;
+            }
+        }
         if (g_rosterDirty || now - g_lastRoster >= 1000) {
             BroadcastRoster();
         }
@@ -1687,24 +1859,40 @@ static void TickImpl() {
         if (g_raceEndAt != 0 && now >= g_raceEndAt) {
             g_raceEndAt = 0;
             RaceEnd();
+            if (g_hasQueuedStart) {
+                // El anfitrion eligio la pista antes de que cerrara la carrera anterior: se inicia ahora, con los jugadores
+                // y el retraso de este momento (alguien pudo irse en estos segundos).
+                RaceParams p = g_queuedStart;
+                g_hasQueuedStart = false;
+                p.humans.clear();
+                for (const PeerInfo& pi : HostRoster()) p.humans.push_back({ pi.slot, pi.character });
+                p.delay = static_cast<uint8_t>(SuggestDelay());
+                Log("Iniciando la carrera que estaba en espera");
+                HostStartRace(p);
+            }
         }
         if (!dead.empty() || !g_peers.empty()) {
-            g_status = (g_viaRelay ? "Sala " + g_roomCode + ": " : std::string("Sala activa: ")) +
-                       std::to_string(g_peers.size() + 1) + " jugador(es)";
+            g_status = (g_viaRelay ? TR("Sala ", "Room ") + g_roomCode + ": " : TR("Sala activa: ", "Active room: ")) +
+                       std::to_string(g_peers.size() + 1) + TR(" jugador(es)", " player(s)");
         } else {
-            g_status = g_viaRelay ? "Sala " + g_roomCode + " creada (esperando jugadores)"
-                                  : std::string("Sala creada (esperando jugadores)");
+            g_status = g_viaRelay
+                           ? TR("Sala ", "Room ") + g_roomCode + TR(" creada (esperando jugadores)", " created (waiting for players)")
+                           : TR("Sala creada (esperando jugadores)", "Room created (waiting for players)");
         }
     } else if (g_role == Role::Client) {
         if (g_cstate == ClientState::Connecting) {
-            if (now - g_cStart > kConnectTimeoutMs) {
-                SetStatus("No se pudo conectar: el anfitrion no responde");
+            // Rechazado por carrera en curso: el anfitrion SI responde, asi que se espera (hasta 10 min) y se reintenta cada 2 s
+            const bool waiting = g_waitRace;
+            const uint64_t since = waiting ? g_waitRaceSince : g_cStart;
+            if (now - since > (waiting ? kWaitRaceMaxMs : kConnectTimeoutMs)) {
+                SetStatus(waiting ? TR("No se pudo entrar: la carrera sigue en curso", "Could not enter: the race is still in progress") : TR("No se pudo conectar: el anfitrion no responde", "Could not connect: the host is not responding"));
+                if (g_viaRelay) SendRelay(R_CLOSE);
                 CloseSock(g_sock);
                 g_sock = kInvalidSock;
                 ResetState();
                 return;
             }
-            if (now - g_lastHello >= kHelloRetryMs) SendHello();
+            if (now - g_lastHello >= (waiting ? kWaitRaceRetryMs : kHelloRetryMs)) SendHello();
         } else if (g_cstate == ClientState::Connected) {
             if (now - g_lastRecv > kTimeoutMs) {
                 if (g_race.active) {
@@ -1714,7 +1902,7 @@ static void TickImpl() {
                     }
                     AddLeft(0, hostName);
                 }
-                SetStatus("Se perdio la conexion con el anfitrion");
+                SetStatus(TR("Se perdio la conexion con el anfitrion", "Lost connection to the host"));
                 CloseSock(g_sock);
                 g_sock = kInvalidSock;
                 ResetState();
@@ -1753,6 +1941,24 @@ Role GetRole() { return g_role; }
 bool IsConnected() {
     if (g_role == Role::Host) return true;
     return g_role == Role::Client && g_cstate == ClientState::Connected;
+}
+
+bool IsWaitingForRace() { return g_role == Role::Client && g_cstate == ClientState::Connecting && g_waitRace; }
+
+void SetLanguage(int lang) { g_lang = (lang == 1) ? 1 : 0; }
+
+int GetLanguage() { return g_lang; }
+
+void SetPingLimit(int ms) { g_pingLimit = ms < 0 ? 0 : (ms > 2000 ? 2000 : ms); }
+
+int GetPingLimit() { return g_pingLimit; }
+
+int ConnectionWarning() {
+    if (NowMs() >= g_connWarnUntil) {
+        g_connWarnLevel = 0;
+        return 0;
+    }
+    return g_connWarnLevel;
 }
 
 int GetLocalSlot() {
@@ -1802,13 +2008,34 @@ const std::vector<std::string>& GetLog() { return g_log; }
 // ---------- carrera en red ----------
 
 bool HostStartRace(const RaceParams& p) {
-    if (g_role != Role::Host || g_race.active || g_race.pending) return false;
+    if (g_role != Role::Host) return false;
+    // Ya pedido (doble pulsacion) o cargandose: no se repite. OJO: 'starting' se queda en true durante toda la carrera.
+    if (g_hasQueuedStart || g_race.pending || (g_race.starting && !g_race.active)) return true;
+    if (g_race.active) {
+        if (g_raceEndAt != 0) {
+            // La carrera anterior acaba de terminar y sigue "abierta" unos segundos (por si alguien aun no ha salido de los
+            // resultados). En vez de negarse en silencio, se guarda la orden y se ejecuta al cerrarse (ver TickImpl).
+            g_queuedStart = p;
+            g_hasQueuedStart = true;
+            Log("Inicio de carrera en espera: la anterior se cierra en " +
+                std::to_string(static_cast<long long>(g_raceEndAt) - static_cast<long long>(NowMs())) + " ms");
+            return true;
+        }
+        Log("Inicio de carrera RECHAZADO: hay una carrera en marcha");
+        return false;
+    }
     g_race = RaceState();
     g_race.params = p;
     g_race.pending = true;
     g_race.starting = true;
     g_race.lastStartSend = 0;
     Log("Iniciando la carrera para " + std::to_string(g_peers.size() + 1) + " jugador(es)");
+    {
+        // Diagnostico: el ping (ms hasta el servidor) que se muestra de cada jugador en este momento
+        std::string pings = "Pings al iniciar:";
+        for (const PeerInfo& pi : HostRoster()) pings += " " + std::to_string(pi.slot) + "=" + std::to_string(pi.pingMs);
+        Log(pings);
+    }
     g_aggActive = false;
     g_abortSends = 0;
     g_aggBeginSend = 0; // el bucle de red manda R_AGG_BEGIN al rele y lo repite hasta recibir los parametros
@@ -1926,7 +2153,7 @@ bool AggWaiting() {
     return false;
 }
 
-bool RaceBusy() { return (g_race.active && g_raceEndAt == 0) || g_race.pending || g_race.starting; }
+bool RaceBusy() { return (g_race.active && g_raceEndAt == 0) || g_race.pending || g_race.starting || g_hasQueuedStart; }
 
 void RaceAddWin(int slot) {
     if (g_role != Role::Host || slot < 0 || slot >= kMaxPlayers) return;
@@ -2008,6 +2235,22 @@ void RaceSubmitLocal(uint32_t tick, const Pad& pad) {
     if (!g_race.active) return;
     int slot = GetLocalSlot();
     if (slot < 0) return;
+    if (g_aggActive && g_race.anySubmitted) {
+        // El servidor cambia el retraso de este jugador a media carrera.
+        // Al BAJARLO, el mando de este tick ya esta cubierto (se mando antes con el retraso anterior): no se repite.
+        if (tick <= g_race.lastSubmitted) {
+            if (NowMs() - g_race.lastInputSend >= 30) SendAggInput(g_race.lastSubmitted); // al menos, el acuse de fotogramas
+            return;
+        }
+        // Al SUBIRLO, los ticks que quedan entre el ultimo mando y este se rellenan con este mismo mando (antes salian
+        // neutros: un boton pulsado se soltaba un instante).
+        for (uint32_t t = g_race.lastSubmitted + 1; t < tick && tick - t <= 32; t++) {
+            int j = t % kRing;
+            g_race.sent[j] = pad;
+            g_race.sentTick[j] = t;
+            g_submitUs[j] = 0; // sin medida de latencia para los ticks de relleno
+        }
+    }
     int i = tick % kRing;
     g_race.sent[i] = pad;
     g_race.sentTick[i] = tick;

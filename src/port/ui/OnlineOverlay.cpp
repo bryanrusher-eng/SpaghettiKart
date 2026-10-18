@@ -18,6 +18,11 @@ namespace {
 
 const char* kCharacterNames[8] = { "Mario", "Luigi", "Yoshi", "Toad", "DK", "Wario", "Peach", "Bowser" };
 
+// Texto segun el idioma elegido en el menu online (0 = espanol, 1 = ingles).
+const char* T(const char* es, const char* en) {
+    return Net::GetLanguage() == 1 ? en : es;
+}
+
 void Normalize(float v[3]) {
     float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
     if (l > 0.00001f) {
@@ -73,7 +78,7 @@ std::string NameOf(const OnlineViewData& v, int slot, const std::vector<Net::Pee
     for (const Net::PeerInfo& p : peers) {
         if (p.slot == slot) return p.name;
     }
-    if (v.kart[slot].human) return "Jugador " + std::to_string(slot + 1);
+    if (v.kart[slot].human) return std::string(T("Jugador ", "Player ")) + std::to_string(slot + 1);
     int c = v.kart[slot].character;
     return std::string("CPU ") + kCharacterNames[(c >= 0 && c < 8) ? c : 0];
 }
@@ -105,7 +110,7 @@ void OverlayWindow::DrawElement() {
         float yL = org.y + static_cast<float>(vpl.y) + vhl * 0.22f;
         for (const Net::LeftInfo& e : left) {
             if (e.ageMs > 7000) continue;
-            std::string msg = e.name + " sali\xC3\xB3 de la partida";
+            std::string msg = e.name + T(" sali\xC3\xB3 de la partida", " left the game");
             ImVec2 tsL = font->CalcTextSizeA(sizeL, 10000.0f, 0.0f, msg.c_str());
             float xL = org.x + static_cast<float>(vpl.x) + (vwl - tsL.x) * 0.5f;
             float alpha = e.ageMs > 6000 ? (7000 - e.ageMs) / 1000.0f : 1.0f;
@@ -120,6 +125,85 @@ void OverlayWindow::DrawElement() {
     }
     if (online_results_active()) {
         return; // en la pantalla de resultados no se dibujan los nombres sobre los karts
+    }
+    // --- Modo Chaos e items especiales: avisos grandes, controles invertidos y cuenta atras del proximo item ---
+    {
+        auto vpb = GetInterpreter()->mGameWindowViewport;
+        float vwb = static_cast<float>(OTRGetGameViewportWidth());
+        float vhb = static_cast<float>(OTRGetGameViewportHeight());
+        const int kBannerTicks = 120; // 4 s
+        if (v.bannerKind != 0 && v.bannerAge >= 0 && v.bannerAge < kBannerTicks) {
+            std::string l1, l2;
+            ImU32 rgb = IM_COL32(255, 255, 255, 255);
+            if (v.bannerKind == 1) {
+                l1 = T("SWAP LEGENDARIO!", "LEGENDARY SWAP!");
+                l2 = NameOf(v, v.bannerA, peers) + T(" cambia de lugar con ", " swaps places with ") + NameOf(v, v.bannerB, peers);
+                rgb = IM_COL32(255, 215, 0, 255);
+            } else if (v.bannerKind == 2) {
+                l1 = T("ESPEJO!", "MIRROR!");
+                l2 = std::string(T("Controles invertidos: ", "Reversed controls: ")) + NameOf(v, v.bannerB, peers) +
+                     (v.bannerA == v.bannerB ? T(" (se lo llev\xC3\xB3 \xC3\xA9l mismo!)", " (hit themselves!)") : "");
+                rgb = IM_COL32(170, 130, 255, 255);
+            } else {
+                l1 = "CHAOS!";
+                l2 = T("Todos reciben un item", "Everyone gets an item");
+                rgb = IM_COL32(255, 100, 90, 255);
+            }
+            float alpha = v.bannerAge > kBannerTicks - 30 ? (kBannerTicks - v.bannerAge) / 30.0f : 1.0f;
+            int a = static_cast<int>(255 * alpha);
+            ImU32 col = (rgb & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24);
+            // Solo las letras (con sombra para que se lean sobre la pista), sin caja de fondo.
+            float s1 = baseSize * 1.9f, s2 = baseSize * 1.05f;
+            ImVec2 t1 = font->CalcTextSizeA(s1, 10000.0f, 0.0f, l1.c_str());
+            ImVec2 t2 = font->CalcTextSizeA(s2, 10000.0f, 0.0f, l2.c_str());
+            float cx = org.x + static_cast<float>(vpb.x) + vwb * 0.5f;
+            float y1 = org.y + static_cast<float>(vpb.y) + vhb * 0.15f;
+            dl->AddText(font, s1, ImVec2(cx - t1.x * 0.5f + 1.5f, y1 + 1.5f), IM_COL32(0, 0, 0, a), l1.c_str());
+            dl->AddText(font, s1, ImVec2(cx - t1.x * 0.5f, y1), col, l1.c_str());
+            dl->AddText(font, s2, ImVec2(cx - t2.x * 0.5f + 1, y1 + t1.y + 3), IM_COL32(0, 0, 0, a), l2.c_str());
+            dl->AddText(font, s2, ImVec2(cx - t2.x * 0.5f, y1 + t1.y + 2), IM_COL32(255, 255, 255, a), l2.c_str());
+        }
+        if (v.mirrorLeft > 0) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), T("CONTROLES INVERTIDOS  %d s", "REVERSED CONTROLS  %d s"), (v.mirrorLeft + 29) / 30);
+            float sm = baseSize * 1.2f;
+            ImVec2 tm = font->CalcTextSizeA(sm, 10000.0f, 0.0f, buf);
+            float xm = org.x + static_cast<float>(vpb.x) + (vwb - tm.x) * 0.5f;
+            float ym = org.y + static_cast<float>(vpb.y) + vhb * 0.72f;
+            DrawShadowText(dl, font, sm, ImVec2(xm, ym), IM_COL32(190, 150, 255, 255), buf);
+        }
+        if (v.chaos) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), T("CHAOS   pr\xC3\xB3ximo \xC3\xADtem en %d s", "CHAOS   next item in %d s"),
+                          (v.chaosLeft + 29) / 30);
+            float sc = baseSize * 1.0f;
+            ImVec2 tc = font->CalcTextSizeA(sc, 10000.0f, 0.0f, buf);
+            DrawShadowText(dl, font, sc,
+                           ImVec2(org.x + static_cast<float>(vpb.x) + (vwb - tc.x) * 0.5f,
+                                  org.y + static_cast<float>(vpb.y) + 6.0f),
+                           IM_COL32(255, 130, 110, 230), buf);
+        }
+    }
+    // --- aviso de conexion inestable de ESTA PC (unos segundos): el servidor le subio el retraso o su ping es alto/irregular ---
+    {
+        int warn = Net::ConnectionWarning();
+        if (warn > 0) {
+            auto vpw = GetInterpreter()->mGameWindowViewport;
+            float vhw = static_cast<float>(OTRGetGameViewportHeight());
+            float sw1 = baseSize * 1.25f, sw2 = baseSize * 0.9f;
+            float vww = static_cast<float>(OTRGetGameViewportWidth());
+            // A la derecha, debajo del tiempo: la izquierda la ocupa la lista de posiciones y el centro los avisos del Modo Chaos
+            const char* l1w = warn >= 2 ? T("CONEXI\xC3\x93N MUY INESTABLE", "VERY UNSTABLE CONNECTION")
+                                        : T("CONEXI\xC3\x93N INESTABLE", "UNSTABLE CONNECTION");
+            const char* l2w = T("Usa cable o cierra descargas", "Use a cable or close downloads");
+            ImVec2 t1w = font->CalcTextSizeA(sw1, 10000.0f, 0.0f, l1w);
+            ImVec2 t2w = font->CalcTextSizeA(sw2, 10000.0f, 0.0f, l2w);
+            float xr = org.x + static_cast<float>(vpw.x) + vww - 14.0f;
+            float yw = org.y + static_cast<float>(vpw.y) + vhw * 0.16f;
+            ImU32 colw = warn >= 2 ? IM_COL32(255, 90, 80, 255) : IM_COL32(255, 200, 80, 255);
+            DrawShadowText(dl, font, sw1, ImVec2(xr - t1w.x, yw), colw, l1w);
+            DrawShadowText(dl, font, sw2, ImVec2(xr - t2w.x, yw + sw1 + 2.0f), IM_COL32(255, 255, 255, 210), l2w);
+        }
     }
     // --- nombre sobre cada kart humano (menos el propio) ---
     for (int slot = 0; slot < v.numKarts; slot++) {
@@ -152,9 +236,12 @@ void OverlayWindow::DrawElement() {
         float vwx = static_cast<float>(OTRGetGameViewportWidth());
         float vhx = static_cast<float>(OTRGetGameViewportHeight());
         if (v.exitPrompt != 0) {
-            const char* l1 = v.exitPrompt == 1 ? "TERMINAR LA CARRERA PARA TODOS?" : "SALIR DE LA CARRERA?";
-            const char* l2 = v.exitPrompt == 1 ? "Todos vuelven al lobby para hacer cambios" : "Volveras al lobby; los demas siguen";
-            const char* l3 = "A  Si          B  No";
+            const char* l1 = v.exitPrompt == 1 ? T("TERMINAR LA CARRERA PARA TODOS?", "END THE RACE FOR EVERYONE?")
+                                               : T("SALIR DE LA CARRERA?", "LEAVE THE RACE?");
+            const char* l2 = v.exitPrompt == 1
+                                 ? T("Todos vuelven al lobby para hacer cambios", "Everyone returns to the lobby to make changes")
+                                 : T("Volveras al lobby; los demas siguen", "You will return to the lobby; the others keep racing");
+            const char* l3 = T("A  Si          B  No", "A  Yes          B  No");
             float s1 = baseSize * 1.7f, s2 = baseSize * 1.15f;
             ImVec2 t1 = font->CalcTextSizeA(s1, 10000.0f, 0.0f, l1);
             ImVec2 t2 = font->CalcTextSizeA(s2, 10000.0f, 0.0f, l2);
@@ -169,7 +256,7 @@ void OverlayWindow::DrawElement() {
             DrawShadowText(dl, font, s2, ImVec2(x0 + (w - t2.x) * 0.5f, y0 + 24.0f + t1.y), IM_COL32(220, 220, 235, 255), l2);
             DrawShadowText(dl, font, s2, ImVec2(x0 + (w - t3.x) * 0.5f, y0 + 38.0f + t1.y + t2.y), IM_COL32(140, 255, 160, 255), l3);
         } else if (!online_results_active()) {
-            const char* hint = "START  Salir";
+            const char* hint = T("START  Salir", "START  Exit");
             float sh = baseSize * 0.9f;
             ImVec2 th = font->CalcTextSizeA(sh, 10000.0f, 0.0f, hint);
             dl->AddText(font, sh, ImVec2(org.x + static_cast<float>(vpx.x) + vwx - th.x - 12.0f,
@@ -186,17 +273,22 @@ void OverlayWindow::DrawElement() {
         float rowH = std::min(baseSize * 1.25f, vh / 21.0f);
         float size = rowH * 0.86f;
         float panelW = std::max(vw * 0.36f, 220.0f);
-        float panelH = rowH * (v.numKarts + 1.6f);
+        int shownKarts = 0; // carrera "sin bots": solo los puestos con kart
+        for (int k = 0; k < v.numKarts; k++) {
+            if (v.kart[k].exists) shownKarts++;
+        }
+        float panelH = rowH * (shownKarts + 1.6f);
         ImVec2 p0(org.x + static_cast<float>(vp.x) + vw * 0.5f - panelW * 0.5f,
                   org.y + static_cast<float>(vp.y) + vh * 0.5f - panelH * 0.5f);
         dl->AddRectFilled(p0, ImVec2(p0.x + panelW, p0.y + panelH), IM_COL32(8, 8, 24, 205), 8.0f);
         dl->AddRect(p0, ImVec2(p0.x + panelW, p0.y + panelH), IM_COL32(120, 160, 255, 255), 8.0f, 0, 2.0f);
         DrawShadowText(dl, font, size, ImVec2(p0.x + 10.0f, p0.y + rowH * 0.2f), IM_COL32(255, 255, 255, 255),
-                       "POSICIONES");
+                       T("POSICIONES", "STANDINGS"));
+        int row = 0;
         for (int rank = 0; rank < v.numKarts; rank++) {
             int slot = v.rankPlayer[rank];
-            if (slot < 0 || slot >= v.numKarts) continue;
-            float y = p0.y + rowH * (rank + 1.4f);
+            if (slot < 0 || slot >= v.numKarts || !v.kart[slot].exists) continue;
+            float y = p0.y + rowH * (row++ + 1.4f);
             bool me = (slot == v.localSlot);
             ImU32 col = me ? IM_COL32(120, 255, 140, 255)
                            : (v.kart[slot].human ? IM_COL32(255, 235, 120, 255) : IM_COL32(210, 210, 220, 255));
@@ -205,7 +297,7 @@ void OverlayWindow::DrawElement() {
             DrawShadowText(dl, font, size, ImVec2(p0.x + 10.0f, y), col, buf);
             DrawShadowText(dl, font, size, ImVec2(p0.x + 10.0f + size * 2.2f, y), col,
                            NameOf(v, slot, peers).c_str());
-            std::snprintf(buf, sizeof(buf), "V %d/3", v.kart[slot].lap);
+            std::snprintf(buf, sizeof(buf), T("V %d/3", "L %d/3"), v.kart[slot].lap);
             ImVec2 ts = font->CalcTextSizeA(size, 10000.0f, 0.0f, buf);
             DrawShadowText(dl, font, size, ImVec2(p0.x + panelW - ts.x - 10.0f, y), col, buf);
         }

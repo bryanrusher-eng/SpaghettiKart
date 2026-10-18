@@ -8,6 +8,10 @@
  * @param itemBox
  */
 void update_actor_item_box_hot_air_balloon(struct ItemBox* itemBox) {
+    if (online_chaos_active()) {
+        itemBox->flags = 0; // Modo Chaos: la pista no da items (la caja desaparece y no se puede tocar)
+        return;
+    }
     switch (itemBox->state) {
         case 5:
             itemBox->rot[0] += 0xB6;
@@ -34,6 +38,10 @@ void update_actor_item_box_hot_air_balloon(struct ItemBox* itemBox) {
  * @param itemBox
  */
 void update_actor_item_box(struct ItemBox* itemBox) {
+    if (online_chaos_active()) {
+        itemBox->flags = 0; // Modo Chaos: la pista no da items (la caja desaparece y no se puede tocar)
+        return;
+    }
     switch (itemBox->state) {
         case 0:
             itemBox->state = 1;

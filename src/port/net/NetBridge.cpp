@@ -26,6 +26,8 @@ int NetBridge_PollRaceStart(NetBridgeRace* out) {
     out->track = p.track;
     out->cc = p.cc;
     out->delay = p.delay;
+    out->chaos = p.chaos;
+    out->bots = p.bots;
     out->seed = p.seed;
     out->numHumans = 0;
     for (const Net::RaceHuman& h : p.humans) {

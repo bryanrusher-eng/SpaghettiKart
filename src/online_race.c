@@ -19,6 +19,10 @@
 #include "engine/TrackBrowser.h"
 #include "racing/race_logic.h"
 #include "racing/collision.h"
+#include "code_800029B0.h"
+#include "update_objects.h"
+#include "code_80057C60.h"
+#include "racing/math_util.h"
 
 extern OSContPad gControllerPads[];
 extern u16 gRandomSeed16;
@@ -37,12 +41,23 @@ unsigned short online_local_buttons(void) {
     return sLocalButtons;
 }
 static u32 sHumanMask = 0;
+static int sNoBots = 0; // la carrera es "sin bots": solo existen los karts de los jugadores
 static u32 sTick = 0;
 static FILE* sLog = NULL;
 static int sDemoCancelled = 0;
 static int sResultsTimer = -1; // ticks desde que se muestran los resultados (-1 = aun no)
 
 #define RESULTS_TICKS 450 // 15 s
+
+// Modo Chaos e items especiales (ver mas abajo, "Modo Chaos e items especiales")
+static int sChaos = 0;           // esta carrera es Modo Chaos
+static u32 sChaosTimer = 0;      // ticks de carrera en marcha (el evento salta cada CHAOS_PERIOD_TICKS)
+static int sChaosLastThunder = -1000; // numero del ultimo evento de Chaos en que salio el rayo / el caparazon azul
+static int sChaosLastBlue = -1000;
+static u32 sMirrorUntil[NUM_PLAYERS]; // tick de simulacion hasta el que el stick de ese slot esta invertido
+static int sBannerKind = 0;
+static int sBannerA = -1, sBannerB = -1;
+static u32 sBannerTick = 0;
 
 int online_results_active(void) {
     return gOnlineRace && sResultsTimer >= 0;
@@ -169,6 +184,10 @@ int online_no_cull(void) {
     return online_race_setup_active() && !off;
 }
 
+int online_no_bots(void) {
+    return online_race_setup_active() && sNoBots;
+}
+
 int online_slot_is_human(int slot) {
     if (slot < 0 || slot >= 16) {
         return 0;
@@ -234,6 +253,7 @@ void online_poll_start(void) {
     for (i = 0; i < sParams.numHumans; i++) {
         sHumanMask |= 1u << sParams.slot[i];
     }
+    sNoBots = sParams.bots == 0;
 
     // Mismos valores que fija el menu al elegir Mario GP en la primera opcion.
     gModeSelection = GRAND_PRIX;
@@ -298,6 +318,13 @@ void online_setup_end(void) {
     gTickLogic = 2;
     sExitPrompt = 0;
     sPrevLocal = 0xFFFF;
+    sChaos = sParams.chaos != 0;
+    sChaosTimer = 0;
+    sChaosLastThunder = -1000;
+    sChaosLastBlue = -1000;
+    memset(sMirrorUntil, 0, sizeof(sMirrorUntil));
+    sBannerKind = 0;
+    sBannerA = sBannerB = -1;
 
     // La pantalla de esta PC sigue a su propio kart.
     gScreenContexts[0].player = &gPlayers[online_view_slot()];
@@ -329,21 +356,26 @@ void online_setup_end(void) {
 void online_test_give_item(int slot, unsigned short pressed) {
     static const s8 itemList[] = { ITEM_TRIPLE_GREEN_SHELL, ITEM_BANANA, ITEM_RED_SHELL, ITEM_FAKE_ITEM_BOX,
                                    ITEM_GREEN_SHELL, ITEM_BANANA_BUNCH, ITEM_BLUE_SPINY_SHELL };
+    static const s8 specialList[] = { ITEM_SWAP, ITEM_MIRROR };
     static int init = 0;
     static int enabled = 0;
     static int itemSlot = 0;
+    static int useSpecial = 0; // SK_ONLINE_TEST_ITEMS=especiales: da el Swap y el Espejo en vez de los items normales
 
     if (!init) {
         const char* e = getenv("SK_ONLINE_TEST_ITEMSLOT");
+        const char* t = getenv("SK_ONLINE_TEST_ITEMS");
 
         init = 1;
-        enabled = getenv("SK_ONLINE_TEST_ITEMS") != NULL;
+        enabled = t != NULL;
+        useSpecial = t != NULL && t[0] == 'e';
         itemSlot = e != NULL ? atoi(e) : 0;
     }
     if (!enabled || !gOnlineRace || slot != itemSlot || !(pressed & 0x2000) || sTick < 240) {
         return;
     }
-    gPlayers[slot].currentItemCopy = itemList[(sTick / 240) % (sizeof(itemList) / sizeof(itemList[0]))];
+    gPlayers[slot].currentItemCopy = useSpecial ? specialList[(sTick / 240) % 2]
+                                                : itemList[(sTick / 240) % (sizeof(itemList) / sizeof(itemList[0]))];
 }
 
 int online_item_player_count(void) {
@@ -360,6 +392,304 @@ void online_note_item_use(int slot, int item) {
     if (gOnlineRace && sLog != NULL && getenv("SK_ONLINE_TEST_ITEMS") != NULL) {
         fprintf(sLog, "# itemuse tick %u slot %d item=%d\n", sTick, slot, item);
         fflush(sLog);
+    }
+}
+
+// ---------- Modo Chaos e items especiales ----------
+// Todo ocurre DENTRO de la simulacion (con su generador aleatorio y a la misma hora de simulacion en todas las PCs): el
+// servidor solo reparte mandos y no sabe nada de esto. El anfitrion decide el Modo Chaos al iniciar la carrera.
+//  - Sorteo de cada item (caja de la pista o evento de Chaos): 5 % Swap, 15 % Espejo, 80 % item normal (sin importar el puesto).
+//  - Swap: el jugador cambia de lugar en la pista con otro kart elegido al azar (humano o CPU).
+//  - Espejo: los controles de UN jugador elegido al azar (puede ser el mismo que lo saco) quedan invertidos 10 s.
+//  - Modo Chaos: las cajas de la pista no dan items; cada 12 s todos los humanos reciben uno.
+// Tipos de aviso en pantalla (OnlineViewData.bannerKind); los items especiales son ITEM_SWAP e ITEM_MIRROR.
+enum { BANNER_NONE = 0, BANNER_SWAP = 1, BANNER_MIRROR = 2, BANNER_CHAOS = 3 };
+
+#define MIRROR_TICKS 300       // 10 s
+#define CHAOS_PERIOD_TICKS 360 // 12 s
+#define BANNER_TICKS 120       // 4 s
+
+int online_chaos_active(void) {
+    return gOnlineRace && sChaos;
+}
+
+static void set_banner(int kind, int a, int b) {
+    sBannerKind = kind;
+    sBannerA = a;
+    sBannerB = b;
+    sBannerTick = sTick;
+}
+
+// Indice al azar entre 0 y n-1 con el generador de la simulacion (random_int(n) puede devolver n).
+static int sim_pick(int n) {
+    int i = (int) random_int((u16) n);
+
+    return i >= n ? n - 1 : i;
+}
+
+// Probabilidades (pruebas: SK_ONLINE_SPECIAL_ODDS="swap,espejo" las cambia; hay que ponerlo igual en todas las PCs).
+int online_special_roll(int playerId) {
+    static int init = 0;
+    static int swapPct = 5;
+    static int mirrorPct = 15;
+    int r;
+
+    (void) playerId;
+    if (!gOnlineRace) {
+        return ITEM_NONE;
+    }
+    if (!init) {
+        const char* e = getenv("SK_ONLINE_SPECIAL_ODDS");
+        int a, b;
+
+        init = 1;
+        if (e != NULL && sscanf(e, "%d,%d", &a, &b) == 2) {
+            swapPct = a;
+            mirrorPct = b;
+        }
+    }
+    r = (int) random_int(100);
+    if (r < swapPct) {
+        return ITEM_SWAP;
+    }
+    if (r < swapPct + mirrorPct) {
+        return ITEM_MIRROR;
+    }
+    return ITEM_NONE;
+}
+
+// Modo Chaos: sorteo de un item NORMAL sin importar el puesto (la tabla del juego da el rayo y el caparazon azul sobre todo al
+// que va de ultimo, y con todos recibiendo un item a la vez salian rayos sin parar). Pesos sobre 1000; el rayo sale como mucho
+// una vez cada 4 eventos de Chaos y el caparazon azul una vez cada 2 (cuenta el evento en que sale). Todo con el generador de la
+// simulacion y los contadores se reinician con cada carrera, asi que es igual en todas las PCs.
+short online_chaos_item_roll(void) {
+    static const struct {
+        short item;
+        short weight;
+    } kTable[] = {
+        { ITEM_BANANA, 100 },        { ITEM_BANANA_BUNCH, 70 },   { ITEM_GREEN_SHELL, 110 },
+        { ITEM_TRIPLE_GREEN_SHELL, 90 }, { ITEM_RED_SHELL, 110 },     { ITEM_TRIPLE_RED_SHELL, 70 },
+        { ITEM_BLUE_SPINY_SHELL, 20 }, { ITEM_THUNDERBOLT, 10 },    { ITEM_FAKE_ITEM_BOX, 90 },
+        { ITEM_STAR, 60 },           { ITEM_BOO, 40 },            { ITEM_MUSHROOM, 100 },
+        { ITEM_DOUBLE_MUSHROOM, 60 }, { ITEM_TRIPLE_MUSHROOM, 40 }, { ITEM_SUPER_MUSHROOM, 30 },
+    };
+    const int n = (int) (sizeof(kTable) / sizeof(kTable[0]));
+    int event = (int) (sChaosTimer / CHAOS_PERIOD_TICKS);
+    int tries;
+
+    for (tries = 0; tries < 12; tries++) {
+        int r = sim_pick(1000);
+        int i;
+        short item = ITEM_BANANA;
+
+        for (i = 0; i < n; i++) {
+            if (r < kTable[i].weight) {
+                item = kTable[i].item;
+                break;
+            }
+            r -= kTable[i].weight;
+        }
+        if (item == ITEM_THUNDERBOLT && event - sChaosLastThunder < 4) {
+            continue; // muy pronto para otro rayo: se vuelve a sortear
+        }
+        if (item == ITEM_BLUE_SPINY_SHELL && event - sChaosLastBlue < 2) {
+            continue;
+        }
+        if (item == ITEM_THUNDERBOLT) {
+            sChaosLastThunder = event;
+        } else if (item == ITEM_BLUE_SPINY_SHELL) {
+            sChaosLastBlue = event;
+        }
+        return item;
+    }
+    return ITEM_GREEN_SHELL;
+}
+
+static void swap_mem(void* x, void* y, size_t n) {
+    unsigned char tmp[256];
+    unsigned char* px = (unsigned char*) x;
+    unsigned char* py = (unsigned char*) y;
+
+    while (n > 0) {
+        size_t c = n > sizeof(tmp) ? sizeof(tmp) : n;
+
+        memcpy(tmp, px, c);
+        memcpy(px, py, c);
+        memcpy(py, tmp, c);
+        px += c;
+        py += c;
+        n -= c;
+    }
+}
+
+#define SWAP_FIELD(f) swap_mem(&pa->f, &pb->f, sizeof(pa->f))
+#define SWAP_ELEM(arr) swap_mem(&(arr)[a], &(arr)[b], sizeof((arr)[0]))
+
+// Intercambia el sitio de dos karts en la pista: posicion, rumbo, velocidad y TODO el avance de carrera (vuelta, punto del
+// camino, tiempo de ultima meta), para que los puestos sigan siendo coherentes. Cada uno conserva su personaje, sus items y sus
+// efectos (estrella, setas...).
+static void swap_kart_state(int a, int b) {
+    Player* pa = &gPlayers[a];
+    Player* pb = &gPlayers[b];
+
+    SWAP_FIELD(pos);
+    SWAP_FIELD(oldPos);
+    SWAP_FIELD(rotation);
+    SWAP_FIELD(velocity);
+    SWAP_FIELD(unk_064);
+    SWAP_FIELD(speed);
+    SWAP_FIELD(currentSpeed);
+    SWAP_FIELD(previousSpeed);
+    SWAP_FIELD(kartHopVelocity);
+    SWAP_FIELD(kartHopJerk);
+    SWAP_FIELD(kartHopAcceleration);
+    SWAP_FIELD(hopVerticalOffset);
+    SWAP_FIELD(hopFrameCounter);
+    SWAP_FIELD(orientationMatrix);
+    SWAP_FIELD(unk_150);
+    SWAP_FIELD(collision);
+    SWAP_FIELD(tyres);
+    SWAP_FIELD(nearestPathPointId);
+    SWAP_FIELD(lapCount);
+    SWAP_ELEM(gNearestPathPointByPlayerId);
+    SWAP_ELEM(gPathIndexByPlayerId);
+    SWAP_ELEM(gLapCountByPlayerId);
+    SWAP_ELEM(gLapCompletionPercentByPlayerId);
+    SWAP_ELEM(gCourseCompletionPercentByPlayerId);
+    SWAP_ELEM(gTimePlayerLastTouchedFinishLine);
+    SWAP_ELEM(gPreviousPlayerZ);
+    // Los karts de CPU siguen un camino propio: se les reinicia la conducta para que no arrastren la del sitio anterior.
+    if (!(pa->type & PLAYER_HUMAN) || (pa->type & PLAYER_CPU)) {
+        reset_cpu_behaviour(a);
+    }
+    if (!(pb->type & PLAYER_HUMAN) || (pb->type & PLAYER_CPU)) {
+        reset_cpu_behaviour(b);
+    }
+}
+
+// Aplica el efecto de un item especial sacado por 'playerId'.
+void online_special_apply(int kind, int playerId) {
+    int cand[NUM_PLAYERS];
+    int n = 0;
+    int i;
+
+    if (kind == ITEM_MIRROR) {
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            if (online_slot_is_human(i) && !((NetBridge_DroppedMask() >> i) & 1)) {
+                cand[n++] = i;
+            }
+        }
+        if (n == 0) {
+            return;
+        }
+        i = cand[sim_pick(n)]; // puede ser el mismo jugador que lo saco
+        {
+            // Pruebas: SK_ONLINE_TEST_MIRROR_TARGET=N fuerza al jugador afectado (igual en todas las PCs)
+            const char* forced = getenv("SK_ONLINE_TEST_MIRROR_TARGET");
+
+            if (forced != NULL && atoi(forced) >= 0 && atoi(forced) < NUM_PLAYERS) {
+                i = atoi(forced);
+            }
+        }
+        sMirrorUntil[i] = sTick + MIRROR_TICKS;
+        set_banner(BANNER_MIRROR, playerId, i);
+        if (i == online_view_slot()) {
+            play_sound2(SOUND_MENU_FILE_NOT_FOUND);
+        }
+    } else if (kind == ITEM_SWAP) {
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            if (i != playerId && (gPlayers[i].type & PLAYER_EXISTS) && !(gPlayers[i].type & PLAYER_CINEMATIC_MODE)) {
+                cand[n++] = i;
+            }
+        }
+        if (n == 0 || (gPlayers[playerId].type & PLAYER_CINEMATIC_MODE)) {
+            return;
+        }
+        i = cand[sim_pick(n)];
+        swap_kart_state(playerId, i);
+        set_banner(BANNER_SWAP, playerId, i);
+        if (playerId == online_view_slot() || i == online_view_slot()) {
+            play_sound2(SOUND_MENU_OK_CLICKED);
+        }
+    }
+    if (sLog != NULL) {
+        fprintf(sLog, "# especial tick %u tipo=%d de=%d a=%d\n", sTick, kind, playerId, sBannerB);
+        fflush(sLog);
+    }
+}
+
+// Una vez por tick de simulacion (despues de poner los mandos de todos): Modo Chaos y Espejo.
+static void online_special_tick(void) {
+    int i;
+    static int testInit = 0;
+    static int testKind = 0;
+    static int testAt = -1;
+
+    if (!testInit) {
+        const char* e = getenv("SK_ONLINE_TEST_SPECIAL"); // "swap:300" o "espejo:300": dispara el efecto en ese tick (slot 0)
+
+        testInit = 1;
+        if (e != NULL) {
+            testKind = (e[0] == 's') ? ITEM_SWAP : ITEM_MIRROR;
+            testAt = atoi(strchr(e, ':') ? strchr(e, ':') + 1 : "300");
+        }
+    }
+    if (testAt >= 0 && sTick == (u32) testAt && gRaceState == RACE_IN_PROGRESS) {
+        online_special_apply(testKind, 0);
+    }
+    {
+        // Pruebas: SK_ONLINE_TEST_FINISH=N hace que el kart de ESTA PC "termine" la carrera en el tick N (pasa por el final
+        // natural: camara de cine incluida). Solo para probar la camara en una ventana con bots (no la uses entre PCs reales).
+        static int finInit = 0;
+        static int finAt = -1;
+
+        if (!finInit) {
+            const char* e = getenv("SK_ONLINE_TEST_FINISH");
+
+            finInit = 1;
+            finAt = e != NULL ? atoi(e) : -1;
+        }
+        if (finAt >= 0 && sTick == (u32) finAt && gRaceState == RACE_IN_PROGRESS) {
+            gLapCountByPlayerId[online_view_slot()] = 3;
+        }
+    }
+    if (sChaos && gRaceState == RACE_IN_PROGRESS) {
+        sChaosTimer++;
+        if (sLog != NULL && (sChaosTimer % CHAOS_PERIOD_TICKS) == 150) {
+            // Pruebas: a los 5 s de cada evento, el item que lleva cada jugador (debe ser igual en todas las PCs)
+            fprintf(sLog, "# chaos-items tick %u:", sTick);
+            for (i = 0; i < NUM_PLAYERS; i++) {
+                if (online_slot_is_human(i)) {
+                    fprintf(sLog, " %d=%d", i, (int) gPlayers[i].currentItemCopy);
+                }
+            }
+            fprintf(sLog, "\n");
+            fflush(sLog);
+        }
+        if ((sChaosTimer % CHAOS_PERIOD_TICKS) == 0) {
+            if (sLog != NULL) {
+                fprintf(sLog, "# chaos-evento tick %u\n", sTick);
+                fflush(sLog);
+            }
+            set_banner(BANNER_CHAOS, -1, -1);
+            for (i = 0; i < NUM_PLAYERS; i++) {
+                if (online_slot_is_human(i) && !((NetBridge_DroppedMask() >> i) & 1)) {
+                    func_8007ABFC(i, ITEM_NONE); // empieza la ruleta de ese jugador (si ya lleva un item, no hace nada)
+                }
+            }
+        }
+    }
+    // Espejo: el stick horizontal del jugador afectado llega invertido a la simulacion.
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (sTick < sMirrorUntil[i]) {
+            s8 before = gControllerPads[i].stick_x;
+
+            gControllerPads[i].stick_x = (before == -128) ? 127 : (s8) -before;
+            if (sLog != NULL && before != 0 && (sTick % 30) == 0) {
+                fprintf(sLog, "# espejo-pad tick %u slot %d stickX %d -> %d\n", sTick, i, (int) before,
+                        (int) gControllerPads[i].stick_x);
+            }
+        }
     }
 }
 
@@ -552,6 +882,9 @@ void online_apply_pads(void) {
                 }
                 if (testDrive >= 0 && sTick > (u32) testDrive) {
                     localButtons |= 0x8000;
+                    if (getenv("SK_ONLINE_TEST_STEER") != NULL) {
+                        localX = 60; // pruebas: ademas gira a la derecha (para ver el efecto del Espejo)
+                    }
                 }
             }
             {
@@ -673,6 +1006,7 @@ void online_apply_pads(void) {
         gControllerPads[i].right_stick_x = 0;
         gControllerPads[i].right_stick_y = 0;
     }
+    online_special_tick();
 
     if ((sTick % 30) == 0) {
         online_log_state();
@@ -757,6 +1091,13 @@ int online_get_view_data(OnlineViewData* out) {
     out->aspect = gScreenAspect;
     out->matValid = sMatValid;
     out->exitPrompt = sExitPrompt;
+    out->chaos = sChaos;
+    out->chaosLeft = sChaos ? (int) (CHAOS_PERIOD_TICKS - (sChaosTimer % CHAOS_PERIOD_TICKS)) : 0;
+    out->bannerKind = sBannerKind;
+    out->bannerA = sBannerA;
+    out->bannerB = sBannerB;
+    out->bannerAge = (int) (sTick - sBannerTick);
+    out->mirrorLeft = (sTick < sMirrorUntil[online_view_slot()]) ? (int) (sMirrorUntil[online_view_slot()] - sTick) : 0;
     memcpy(out->proj, sProjF, sizeof(sProjF));
     memcpy(out->view, sViewF, sizeof(sViewF));
     out->numKarts = NUM_PLAYERS;
@@ -765,6 +1106,7 @@ int online_get_view_data(OnlineViewData* out) {
         int lap = gLapCountByPlayerId[i] + 1;
         out->rankPlayer[i] = gGPCurrentRacePlayerIdByRank[i];
         out->kart[i].human = online_slot_is_human(i) && !((NetBridge_DroppedMask() >> i) & 1);
+        out->kart[i].exists = (p->type & PLAYER_EXISTS) != 0; // 0 solo en una carrera "sin bots" (puestos sin kart)
         out->kart[i].character = p->characterId;
         out->kart[i].rank = gGPCurrentRaceRankByPlayerId[i];
         out->kart[i].lap = lap < 1 ? 1 : (lap > 3 ? 3 : lap);

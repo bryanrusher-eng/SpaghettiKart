@@ -2925,6 +2925,10 @@ static void draw_online_rank_portraits(void) {
         s32 y = 34 + row * 20;
         char num[4];
 
+        // Carrera "sin bots": los puestos que no son de ningun kart no llevan retrato.
+        if (pid < 0 || pid >= NUM_PLAYERS || !(gPlayers[pid].type & PLAYER_EXISTS)) {
+            continue;
+        }
         if (ch < 0 || ch > 7) {
             ch = 0;
         }

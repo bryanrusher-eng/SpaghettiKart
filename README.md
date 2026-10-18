@@ -1,6 +1,10 @@
 ![Spaghetti Kart](docs/spaghettigithublight.png#gh-light-mode-only)
 ![Spaghetti Kart](docs/spaghettigithubnight.png#gh-dark-mode-only)
 
+> **Unofficial fork with online multiplayer** (deterministic lockstep, up to 16 players per room, relay server).
+> Not affiliated with or endorsed by Harbour Masters or Nintendo. See [docs/ONLINE.md](docs/ONLINE.md) for how it works,
+> how to build it and how to run a relay. Everything below is the upstream README.
+
 ## Website & Discord
 
 Official Website: https://www.harbourmasters.org/

@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import collections
 import logging
+import os
 import random
 import struct
 import sys
@@ -77,6 +78,12 @@ AGG_RAISE_FILLS = 30    # rellenos en AGG_RAISE_WINDOW s = conexion degradada de
 AGG_RAISE_WINDOW = 3.0
 AGG_RAISE_STEP = 2      # ticks que se suman al retraso de entrada de ese jugador cada vez (MAX_DELAY de tope)
 AGG_RAISE_EVERY = 3.0   # s minimos entre dos subidas
+AGG_LAG_LEAD = 8        # ticks: si el mando mas nuevo de un jugador llega con tantos ticks de retraso respecto al fotograma que toca,
+                        # ese jugador va ATRASADO (se congelo, esta cargando, se esta poniendo al dia): no es mala conexion
+AGG_LAG_HOLD = 1.0      # s que se sigue considerando atrasado tras el ultimo mando tan tardio
+AGG_LOWER_CALM = 6.0   # s sin ningun relleno antes de empezar a bajar el retraso de un jugador (tras una subida)
+AGG_LOWER_EVERY = 3.0   # s minimos entre dos bajadas (de 1 tick cada una; nunca baja del retraso con el que empezo)
+AGG_LOWER_RETRY = 30.0  # si tras bajar vuelve a fallar (hubo que subirlo otra vez), no se prueba a bajar durante este tiempo
 AGG_SILENT = 0.5        # s sin senales de un jugador: ya no se le espera (se rellena su mando) hasta que vuelva
 AGG_DROP_AFTER = 3.0    # s sin noticias de un jugador en carrera: se da por desconectado
 AGG_BARRIER = 90.0      # s maximos esperando a que todos terminen de cargar la pista
@@ -84,6 +91,7 @@ AGG_MAX_AHEAD = 100      # ticks: el rele no se adelanta mas que esto al jugador
 AGG_DUP = 2            # copias de cada fotograma que se mandan a cada jugador (cubre paquetes perdidos)
 MIN_DELAY = 2
 MAX_DELAY = 16
+DEBUG_LEAD = os.environ.get("SK_RELAY_DEBUG") is not None
 # modo de latencia -> (multiplicador del jitter, ms fijos de margen)
 LAT_MODES = {0: (3.0, 24.0), 1: (2.0, 16.0), 2: (1.0, 0.0)}
 
@@ -150,6 +158,11 @@ class Agg:
         self.last_fill_tick = {}                 # slot -> ultimo tick en que se le relleno el mando
         self.fill_burst = {s: collections.deque(maxlen=64) for s in self.slots}   # instantes de los ultimos rellenos
         self.last_raise = {}                     # slot -> instante de la ultima subida de su retraso
+        self.dbg_n = {}
+        self.lagging = {}                        # slot -> ultimo instante en que su mando mas nuevo llego muy atrasado
+        self.base_delay = dict(delays)           # slot -> retraso con el que empezo la carrera (suelo de las bajadas)
+        self.last_lower = {}                     # slot -> instante de la ultima bajada de su retraso
+        self.no_lower_until = {}                 # slot -> hasta cuando no se intenta bajarle el retraso
         self.mask = 0xFFFF                       # mascara de humanos que se manda en R_AGG_PARAMS
         self.raises = {s: 0 for s in self.slots}
         self.wait_since = None                   # desde cuando se espera a alguien (para medir los tirones)
@@ -182,6 +195,14 @@ class Agg:
         if count == 0 or len(body) < 9 + 4 * count:
             return
         self.heard[s] = now
+        if first + count - 1 < self.next - AGG_LAG_LEAD:
+            self.lagging[s] = now                  # su mando mas nuevo ya esta muy por detras de lo que se emite
+        if DEBUG_LEAD:
+            # diagnostico (SK_RELAY_DEBUG=1): cuantos ticks por delante del siguiente fotograma llega el mando mas nuevo de cada jugador
+            self.dbg_n[s] = self.dbg_n.get(s, 0) + 1
+            lead = first + count - 1 - self.next
+            if lead < -1 or self.dbg_n[s] % 30 == 0:   # (-1 son las copias repetidas de un mando que ya se uso)
+                log.info("dbg slot=%d mando_nuevo=%d siguiente=%d adelanto=%d ack=%d", s, first + count - 1, self.next, lead, ack)
         self.hi[s] = max(self.hi[s], first + count - 1)
         if ack > self.ack[s]:
             self.ack[s] = ack
@@ -201,6 +222,8 @@ class Agg:
         """Cuanto se espera el mando de este jugador antes de rellenarlo. Los jugadores que van tarde varias veces seguidas
         (wifi con picos, PC con tirones) solo se esperan un momento: si no, cada pico frenaba a TODOS los jugadores."""
         base = self.dl[s]
+        if self.is_lagging(s, now):
+            return min(base, AGG_PENALTY_DEADLINE)   # va atrasado: esperarle no sirve de nada, solo frena a los demas
         recent = sum(1 for ft in self.fill_times[s] if now - ft < AGG_PENALTY_WINDOW)
         if recent >= AGG_PENALTY_FILLS:
             if s not in self.penalized:
@@ -211,6 +234,9 @@ class Agg:
         if s in self.penalized and recent == 0:
             self.penalized.discard(s)          # lleva un rato bien: vuelve el plazo normal
         return base
+
+    def is_lagging(self, s, now):
+        return now - self.lagging.get(s, -1e9) < AGG_LAG_HOLD
 
     def stall_summary(self):
         """Quien freno la partida a los demas: {slot: (veces, segundos)} (solo tirones de mas de 50 ms)."""
@@ -224,15 +250,36 @@ class Agg:
         recent = sum(1 for ft in self.fill_burst[s] if now - ft < AGG_RAISE_WINDOW)
         if recent < AGG_RAISE_FILLS:
             return
+        if now - self.last_lower.get(s, -1e9) < 8.0:
+            self.no_lower_until[s] = now + AGG_LOWER_RETRY    # la bajada fue demasiado: no se vuelve a probar enseguida
         self.last_raise[s] = now
         old = self.delay[s]
         self.delay[s] = min(MAX_DELAY, old + AGG_RAISE_STEP)
         self.raises[s] += 1
+        self.send_params(relay, s)
+        log.info("agregador: conexion degradada del jugador de slot %d: retraso de entrada %d -> %d ticks", s, old, self.delay[s])
+
+    def send_params(self, relay, s):
         pkt = pack(R_AGG_PARAMS, struct.pack("<BH", self.delay[s], self.mask))
         self.params[s] = pkt
         for _ in range(3):
             relay.send(self.humans[s], pkt)
-        log.info("agregador: conexion degradada del jugador de slot %d: retraso de entrada %d -> %d ticks", s, old, self.delay[s])
+
+    def consider_lower(self, relay, s, now):
+        """Un tropiezo (arrastrar la ventana, una carga, un pico de lag) subia el retraso de ese jugador para el resto de la
+        carrera. Pasado un rato SIN rellenos se le baja de 1 en 1 hacia el que tenia al empezar; si vuelve a fallar se le
+        sube otra vez y se deja de probar un rato."""
+        if self.delay[s] <= self.base_delay[s] or now < self.no_lower_until.get(s, 0.0):
+            return
+        if now - self.last_raise.get(s, 0.0) < AGG_LOWER_CALM or now - self.last_lower.get(s, 0.0) < AGG_LOWER_EVERY:
+            return
+        if any(now - ft < AGG_LOWER_CALM for ft in self.fill_burst[s]):
+            return
+        old = self.delay[s]
+        self.delay[s] = max(self.base_delay[s], old - 1)
+        self.last_lower[s] = now
+        self.send_params(relay, s)
+        log.info("agregador: el jugador de slot %d vuelve a ir bien: retraso de entrada %d -> %d ticks", s, old, self.delay[s])
 
     def fill_pad(self, s):
         """Mando que se pone a un jugador que no llego a tiempo: conserva los botones, pero con el stick en el centro
@@ -288,11 +335,13 @@ class Agg:
                     if pads[i] is None:
                         pads[i] = self.fill_pad(s)         # solo este tick: el jugador atrasado se pone al dia esperandole
                         self.fill_by_slot[s] += 1
+                        self.last_fill_tick[s] = T
+                        self.n_fill += 1
+                        if self.is_lagging(s, now):
+                            continue   # se congelo / se esta poniendo al dia: no es mala conexion, no se le sube el retraso por esto
                         self.fill_times[s].append(now)
                         self.fill_burst[s].append(now)
-                        self.last_fill_tick[s] = T
                         self.consider_raise(relay, s, now)
-                        self.n_fill += 1
             if self.wait_since is not None:
                 stall = now - self.wait_since
                 if stall > 0.05 and self.wait_slots:   # un tiron que se nota (mas de 50 ms con la partida parada)
@@ -368,6 +417,7 @@ class Agg:
         for s in self.slots:
             if s in self.dropped:
                 continue
+            self.consider_lower(relay, s, now)
             if now - self.heard[s] > AGG_DROP_AFTER:
                 self.drop(relay, s)
                 continue
