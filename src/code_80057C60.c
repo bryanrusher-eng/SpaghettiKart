@@ -1311,7 +1311,7 @@ void func_8005A3C0(void) {
     if ((gGamestate != ENDING) && (gGamestate != CREDITS_SEQUENCE) && !D_8018D204) {
         switch (gPlayerCountSelection1) {
             case 1:
-                if (gControllerOne->buttonPressed & R_CBUTTONS) {
+                if (gControllers[online_view_slot()].buttonPressed & R_CBUTTONS) { // online: el mando de TU slot
                     if (++gHUDModes >= 3) {
                         gHUDModes = 0;
                     }

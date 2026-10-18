@@ -6640,7 +6640,8 @@ void func_80019C50(s32 arg0) {
 
 void look_behind_toggle(s32 cameraIdx) {
     static bool lookBehindActive[NUM_CAMERAS] = {0};
-    bool pressed = gControllers[cameraIdx].button & L_CBUTTONS; // button held
+    // En carrera online cada PC controla su camara con el mando de SU slot (no el del jugador 0).
+    bool pressed = gControllers[online_race_setup_active() ? online_view_slot() : cameraIdx].button & L_CBUTTONS; // button held
     ScreenContext* screenCtx = NULL;
 
     if (CVarGetInteger("gLookBehind", false) == false) {
@@ -6736,7 +6737,7 @@ void func_80019ED0(void) {
 void func_80019FB4(s32 cameraId) {
     struct Controller* controller;
 
-    controller = &gControllerOne[cameraId];
+    controller = &gControllerOne[online_race_setup_active() ? online_view_slot() : cameraId];
     if (controller->buttonPressed & 2) {
         D_801645D0[cameraId] += 1;
     } else {
