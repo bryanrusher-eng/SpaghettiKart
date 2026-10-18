@@ -102,6 +102,9 @@ void RaceEndGraceful();
 // Anfitrion: suma una victoria al jugador de ese slot (se reparte a todos con la lista de jugadores).
 void RaceAddWin(int slot);
 int RaceWins(int slot);
+// Victorias de los CPU (todos juntos) en esta sala.
+void RaceAddCpuWin();
+int RaceCpuWins();
 // Nombre que tenia el jugador de ese slot al empezar la carrera ("" si no era humano).
 std::string RaceName(int slot);
 

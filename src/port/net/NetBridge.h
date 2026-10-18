@@ -40,6 +40,8 @@ unsigned NetBridge_DroppedMask(void);
 // Victorias del jugador de ese slot en esta sala; y alta de una victoria (solo hace algo en el anfitrion).
 int NetBridge_Wins(int slot);
 void NetBridge_RaceWinner(int slot);
+int NetBridge_CpuWins(void);
+void NetBridge_RaceCpuWinner(void);
 
 #ifdef __cplusplus
 }

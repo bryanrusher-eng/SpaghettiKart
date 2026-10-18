@@ -25,6 +25,7 @@ typedef struct OnlineMenuInfo {
     int maxPlayers;
     char roomCode[16];
     char status[128];
+    int cpuWins;
     int numPeers;
     OnlineMenuPeer peers[16];
 } OnlineMenuInfo;

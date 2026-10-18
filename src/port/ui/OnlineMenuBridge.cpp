@@ -32,6 +32,7 @@ void OnlineMenu_GetInfo(OnlineMenuInfo* out) {
     out->relay = Net::IsRelay() ? 1 : 0;
     out->raceBusy = Net::RaceBusy() ? 1 : 0;
     out->maxPlayers = Net::GetMaxPlayers();
+    out->cpuWins = Net::RaceCpuWins();
     std::snprintf(out->roomCode, sizeof(out->roomCode), "%s", Net::GetRoomCode().c_str());
     std::snprintf(out->status, sizeof(out->status), "%s", Net::GetStatus().c_str());
     if (out->role != 0) {

@@ -52,6 +52,8 @@ void online_race_finished_tick(void) {
         // La victoria se anota una sola vez (el anfitrion la reparte a todos con la lista de jugadores).
         if (online_slot_is_human(winner) && !((NetBridge_DroppedMask() >> winner) & 1)) {
             NetBridge_RaceWinner(winner);
+        } else {
+            NetBridge_RaceCpuWinner(); // gano un CPU (o alguien que ya se fue): tambien cuenta
         }
     }
     sResultsTimer++;
@@ -108,6 +110,14 @@ void online_poll_start(void) {
 
     if (gOnlineRaceSetup || gOnlineRace) {
         return;
+    }
+    // Si esta PC todavia esta saliendo de la carrera anterior (animacion de vuelta al menu), el aviso de inicio se
+    // queda pendiente y se atiende cuando termine: cargar la carrera a mitad de esa animacion la deja atascada.
+    {
+        extern u16 gIsInQuitToMenuTransition;
+        if (gIsInQuitToMenuTransition != 0 || gGamestate == 255) {
+            return;
+        }
     }
     if (!NetBridge_PollRaceStart(&sParams)) {
         return;

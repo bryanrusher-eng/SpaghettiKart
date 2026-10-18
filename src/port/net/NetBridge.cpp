@@ -55,6 +55,10 @@ int NetBridge_Wins(int slot) { return Net::RaceWins(slot); }
 
 void NetBridge_RaceWinner(int slot) { Net::RaceAddWin(slot); }
 
+int NetBridge_CpuWins(void) { return Net::RaceCpuWins(); }
+
+void NetBridge_RaceCpuWinner(void) { Net::RaceAddCpuWin(); }
+
 void NetBridge_Pump(void) {
     Net::Tick();
 #ifdef _WIN32

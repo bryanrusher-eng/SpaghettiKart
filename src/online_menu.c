@@ -596,6 +596,10 @@ static void render_lobby(const OnlineMenuInfo* info) {
         text(x, y, line, p->isSelf ? TEXT_GREEN : TEXT_BLUE, 0.5f);
     }
 
+    if (info->cpuWins > 0) {
+        snprintf(line, sizeof(line), "CPU  %dV", info->cpuWins);
+        text(34, 70 + 8 * 10 + 2, line, TEXT_RED, 0.5f);
+    }
     if (info->connected) {
         snprintf(line, sizeof(line), "TU PERSONAJE  %s", kCharNames[(sChar >= 0 && sChar < 8) ? sChar : 0]);
         text_center(148, line, TEXT_GREEN, 0.55f);
@@ -621,6 +625,12 @@ void online_menu_render(void) {
     OnlineMenuInfo info;
 
     if (!sOpen) {
+        return;
+    }
+    // Si la carrera ya se esta cargando o corre, el menu se cierra solo (el codigo de los menus no corre en carrera).
+    if (online_race_setup_active() || gGamestate == RACING) {
+        sOpen = 0;
+        sPicking = 0;
         return;
     }
     OnlineMenu_GetInfo(&info);
@@ -702,11 +712,17 @@ void online_results_render(void) {
         snprintf(line, sizeof(line), "%d", rank + 1);
         text(cx - 33, top + 17, line, TEXT_YELLOW, 0.55f);
         text_center_at(cx, top + 34, name, color, 0.45f);
-        if (human && NetBridge_Wins(slot) > 0) {
+        if (rank == 0) {
+            text_center_at(cx, top + 38, "GANADOR", TEXT_YELLOW, 0.4f);
+        } else if (human && NetBridge_Wins(slot) > 0) {
             snprintf(line, sizeof(line), "%d VICT", NetBridge_Wins(slot));
             text_center_at(cx, top + 41, line, TEXT_GREEN, 0.35f);
         }
     }
-    snprintf(line, sizeof(line), "VOLVIENDO A LA SALA EN %d", online_results_seconds_left());
+    if (NetBridge_CpuWins() > 0) {
+        snprintf(line, sizeof(line), "VICTORIAS DE LOS CPU  %d", NetBridge_CpuWins());
+        text_center(200, line, TEXT_RED, 0.42f);
+    }
+    snprintf(line, sizeof(line), "SIGUIENTE CARRERA EN %d", online_results_seconds_left());
     text_center(210, line, TEXT_BLUE, 0.5f);
 }

@@ -1,4 +1,4 @@
-#ifndef _CRT_SECURE_NO_WARNINGS
+﻿#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 #include "Net.h"
@@ -41,7 +41,7 @@ namespace Net {
 namespace {
 
 constexpr uint32_t kMagic = 0x314E4B4D; // "MKN1"
-constexpr uint16_t kProtocolVersion = 3;
+constexpr uint16_t kProtocolVersion = 4;
 
 enum PacketType : uint8_t {
     PKT_HELLO = 1,   // cliente -> host: version, nombre
@@ -141,6 +141,8 @@ struct LeftEvent {
     uint64_t at;
 };
 std::vector<LeftEvent> g_leftEvents;
+int g_cpuWins = 0;               // victorias de los CPU (todos juntos); lo reparte el anfitrion
+int g_cpuWinsRoster = 0;         // cliente: lo ultimo que informo el anfitrion
 int g_wins[kMaxPlayers] = { 0 }; // victorias por slot (la cuenta la lleva el anfitrion y la reparte)
 std::string g_raceNames[kMaxPlayers]; // nombres al empezar la carrera (para los resultados)
 uint64_t g_raceEndAt = 0;             // host: cuando cerrar la carrera de verdad (0 = no)
@@ -394,6 +396,7 @@ void BroadcastRoster() {
     Writer w = Begin(PKT_ROSTER);
     w.u8(static_cast<uint8_t>(g_maxPlayers));
     w.u8(static_cast<uint8_t>(r.size()));
+    w.u8(static_cast<uint8_t>(std::min(g_cpuWins, 255)));
     for (auto& p : r) {
         w.u8(static_cast<uint8_t>(p.slot));
         w.str(p.name);
@@ -407,6 +410,8 @@ void BroadcastRoster() {
 }
 
 void ResetState() {
+    g_cpuWins = 0;
+    g_cpuWinsRoster = 0;
     for (int s = 0; s < kMaxPlayers; s++) g_wins[s] = 0;
     g_peers.clear();
     g_roster.clear();
@@ -706,6 +711,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             int mx = r.u8();
             if (r.ok && mx >= 2 && mx <= kMaxPlayers) g_maxPlayers = mx;
             int n = r.u8();
+            int cpuWins = r.u8();
             std::vector<PeerInfo> list;
             for (int i = 0; i < n && r.ok; i++) {
                 PeerInfo pi;
@@ -718,7 +724,10 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
                 if (pi.isSelf) pi.pingMs = g_myPing;
                 list.push_back(pi);
             }
-            if (r.ok) g_roster = list;
+            if (r.ok) {
+                g_roster = list;
+                g_cpuWinsRoster = cpuWins;
+            }
             break;
         }
         case PKT_LEFT: {
@@ -1412,6 +1421,16 @@ void RaceAddWin(int slot) {
     if (g_role != Role::Host || slot < 0 || slot >= kMaxPlayers) return;
     g_wins[slot]++;
     g_rosterDirty = true;
+}
+
+void RaceAddCpuWin() {
+    if (g_role != Role::Host) return;
+    g_cpuWins++;
+    g_rosterDirty = true;
+}
+
+int RaceCpuWins() {
+    return g_role == Role::Host ? g_cpuWins : g_cpuWinsRoster;
 }
 
 int RaceWins(int slot) {

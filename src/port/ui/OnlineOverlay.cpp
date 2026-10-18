@@ -118,6 +118,9 @@ void OverlayWindow::DrawElement() {
     if (!have) {
         return; // sin carrera en red no hay nombres ni tabla
     }
+    if (online_results_active()) {
+        return; // en la pantalla de resultados no se dibujan los nombres sobre los karts
+    }
     // --- nombre sobre cada kart humano (menos el propio) ---
     for (int slot = 0; slot < v.numKarts; slot++) {
         if (slot == v.localSlot || !v.kart[slot].human) continue;
