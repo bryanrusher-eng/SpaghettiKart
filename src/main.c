@@ -751,6 +751,10 @@ void race_logic_loop(void) {
     func_8005A070();
     CM_TickEditor();
     profiler_log_thread5_time(LEVEL_SCRIPT_EXECUTE);
+    // Carrera online: hasta aqui es SIMULACION (igual en todas las PCs). Lo que sigue es DIBUJADO, que depende de la
+    // camara de cada PC; si gastara numeros aleatorios de la simulacion, cada PC seguiria una secuencia distinta.
+    // El dibujado usa su propio generador y al terminar se devuelve el de la simulacion tal cual estaba.
+    online_render_rng_begin();
     sNumVBlanks = 0;
     gNumScreens = 0;
     init_rdp();
@@ -824,6 +828,7 @@ void race_logic_loop(void) {
 
     // End of frame cleanup of actors, objects, etc.
     CM_RunGarbageCollector();
+    online_render_rng_end();
 }
 
 /**

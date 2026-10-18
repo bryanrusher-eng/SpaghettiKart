@@ -31,16 +31,16 @@ class ATrain : public AActor {
         HAS_TENDER,
     };
 
-    TrainCarStuff Locomotive;
-    TrainCarStuff Tender;
+    TrainCarStuff Locomotive = {};
+    TrainCarStuff Tender = {};
     std::vector<TrainCarStuff> PassengerCars;
     size_t PassengerCarsCount = 0;
     ATrain::SpawnMode SpawnType = ATrain::SpawnMode::AUTO;
     uint32_t PathIndex = 0;
     uint32_t PathPoint = 0;
     TenderStatus HasTender = TenderStatus::NO_TENDER;
-    s32 SomeFlags;
-    f32 SomeMultiplier;
+    s32 SomeFlags = 0;
+    f32 SomeMultiplier = 0.0f;
 
     size_t Index; // Spawns the train in halves of the train path
 

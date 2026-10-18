@@ -37,9 +37,7 @@ public:
 
 public:
     explicit OLakitu(s32 playerId, LakituType type);
-    ~OLakitu() {
-        _count -= 1;
-    }
+    ~OLakitu();
 
     void Activate(LakituType type); // Triggers Lakitu into a behaviour
 

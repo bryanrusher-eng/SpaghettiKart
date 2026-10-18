@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include <course_offsets.h>
@@ -59,6 +60,14 @@ struct Actor* gActorHotAirBalloonItemBox;
 s8 gTLUTRedShell[512]; // tlut 256
 u16 D_802BA260;
 
+// El actor esta "a la vista" (no expirado). Online no depende de la camara de cada PC (ver online_actor_seen).
+int actor_is_seen(struct Actor* actor) {
+    if (online_no_cull()) {
+        return online_actor_seen(actor->pos);
+    }
+    return (actor->flags & ACTOR_IS_NOT_EXPIRED) != 0;
+}
+
 /**
  * Once the amount of spawned player red and green shell count has reached 21 or higher
  * the game will cleanup any dead red or green shells by deleting their actors.
@@ -70,7 +79,7 @@ void cleanup_red_and_green_shells(struct ShellActor* shell) {
     // try finding the dead green shell
     for (actorIndex = gNumPermanentActors; actorIndex < ACTOR_LIST_SIZE; actorIndex++) {
         compare = (struct ShellActor*) CM_GetActor(actorIndex);
-        if ((shell != compare) && !(compare->flags & ACTOR_IS_NOT_EXPIRED) && (compare->type == ACTOR_GREEN_SHELL)) {
+        if ((shell != compare) && !actor_is_seen((struct Actor*) compare) && (compare->type == ACTOR_GREEN_SHELL)) {
             if (compare->state == MOVING_SHELL) {
                 delete_actor_in_unexpired_actor_list(actorIndex);
             }
@@ -83,7 +92,7 @@ void cleanup_red_and_green_shells(struct ShellActor* shell) {
     // try finding the dead red shell
     for (actorIndex = gNumPermanentActors; actorIndex < ACTOR_LIST_SIZE; actorIndex++) {
         compare = (struct ShellActor*) CM_GetActor(actorIndex);
-        if ((shell != compare) && !(compare->flags & ACTOR_IS_NOT_EXPIRED) && (compare->type == ACTOR_RED_SHELL)) {
+        if ((shell != compare) && !actor_is_seen((struct Actor*) compare) && (compare->type == ACTOR_RED_SHELL)) {
             switch (compare->state) {
                 case MOVING_SHELL:
                 case RED_SHELL_LOCK_ON:
@@ -624,7 +633,9 @@ void evaluate_collision_player_palm_trees(Player* player) {
 void evaluate_collision_players_palm_trees(void) {
     s32 index;
 
-    for (index = 0; index < 4; index++) {
+    s32 numKarts = online_race_setup_active() ? NUM_PLAYERS : 4; // en red, todos los karts (hasta 16)
+
+    for (index = 0; index < numKarts; index++) {
         if (((gPlayers[index].type & 0xC000) != 0) &&
             ((s8) (u8) get_surface_type(gPlayers[index].collision.meshIndexZX) == GRASS)) {
             evaluate_collision_player_palm_trees(&gPlayers[index]);
@@ -1227,7 +1238,7 @@ s16 try_remove_destructable_item(Vec3f pos, Vec3s rot, Vec3f velocity, s16 actor
     // try removing a red shell, green shell, banana, or a fake item box if the actor is expired
     for (actorIndex = gNumPermanentActors; actorIndex < ACTOR_LIST_SIZE; actorIndex++) {
         compare = (struct ShellActor*) CM_GetActor(actorIndex);
-        if (!(compare->flags & ACTOR_IS_NOT_EXPIRED)) {
+        if (!actor_is_seen((struct Actor*) compare)) {
             switch (compare->type) {
                 case ACTOR_RED_SHELL:
                     switch (compare->state) {

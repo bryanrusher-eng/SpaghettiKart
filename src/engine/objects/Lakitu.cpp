@@ -43,9 +43,33 @@ extern s8 gPlayerCount;
 
 size_t OLakitu::_count = 0;
 
-// En carrera online el Lakitu se coloca y actua sobre el kart de esta PC, no sobre el jugador 0.
-static s32 LakituTargetPlayer(s32 playerId) {
-    return online_race_setup_active() ? online_view_slot() : playerId;
+// En carrera online hay un Lakitu por cada jugador humano (los rescates fuera de pista de TODOS se simulan igual en
+// todas las PCs); solo el del kart de esta PC se dibuja y suena. Los sonidos de Lakitu son de la pantalla de su jugador.
+static bool LakituAudible(s32 playerId) {
+    return !online_race_setup_active() || playerId == online_view_slot();
+}
+
+static void LakituSnd9018(u8 playerId, u32 bits) {
+    if (LakituAudible(playerId)) {
+        func_800C9018(playerId, bits);
+    }
+}
+
+static void LakituSnd9060(u8 playerId, u32 bits) {
+    if (LakituAudible(playerId)) {
+        func_800C9060(playerId, bits);
+    }
+}
+
+static void LakituSnd8F80(u8 playerId, u32 bits) {
+    if (LakituAudible(playerId)) {
+        func_800C8F80(playerId, bits);
+    }
+}
+
+OLakitu::~OLakitu() {
+    _count -= 1;
+    gLakituListCount = (s32) _count;
 }
 
 OLakitu::OLakitu(s32 playerId, LakituType type) {
@@ -53,25 +77,34 @@ OLakitu::OLakitu(s32 playerId, LakituType type) {
     mPlayerId = playerId;
 
     mCameraId = -1;
-    // Find the camera for this player
-    for (size_t i = 0; i < NUM_CAMERAS; i++) {
-        if (cameras[i].playerId == playerId ) {
-            mCameraId = cameras[i].cameraId;
-            break;
-        }
-    }
-    // Carrera online: la camara de esta PC (la 0) sigue a su propio kart, que no es el jugador 0.
-    // (las camaras sin uso tienen playerId 0 y podrian coincidir con el jugador 0: se fuerza la 0).
     if (online_race_setup_active()) {
-        mCameraId = 0;
+        // Carrera online: la camara de esta PC (la 0) sigue a su propio kart, que no es el jugador 0; los Lakitus de
+        // los demas jugadores no se dibujan (camara -1) pero se simulan igual.
+        if (playerId == online_view_slot()) {
+            mCameraId = 0;
+        }
+    } else {
+        // Find the camera for this player
+        for (size_t i = 0; i < NUM_CAMERAS; i++) {
+            if (cameras[i].playerId == playerId ) {
+                mCameraId = cameras[i].cameraId;
+                break;
+            }
+        }
     }
 
     _idx = _count;
+    if (_count >= 16) {
+        _count = 15; // nunca pasa (maximo 16 jugadores): evita escribir fuera de las tablas
+        _idx = _count;
+    }
     find_unused_obj_index(&gIndexLakituList[_count]);
     init_object(gIndexLakituList[_count], (s32) type);
     mLakituId = gIndexLakituList[_count];
+    gLakituPlayerList[_count] = playerId;
 
     _count += 1;
+    gLakituListCount = (s32) _count;
 }
 
 void OLakitu::Activate(LakituType type) {
@@ -83,8 +116,8 @@ void OLakitu::Tick() {
 }
 
 void OLakitu::Tick60fps() { // update_object_lakitu
-    s32 starterId = mPlayerId; // el Lakitu de salida es el del jugador 0 en todas las PCs (da el pistoletazo)
-    s32 playerId = LakituTargetPlayer(mPlayerId);
+    s32 starterId = (s32) _idx; // el Lakitu de salida es el primero de la lista en todas las PCs (da el pistoletazo)
+    s32 playerId = mPlayerId;
     s32 objectIndex = mLakituId;
 
     switch (gObjectList[objectIndex].unk_0D8) {
@@ -197,7 +230,7 @@ void OLakitu::func_80079114(s32 objectIndex, s32 playerId, s32 arg2) {
     s32 a;
     if (gObjectList[objectIndex].state >= 2) {
         if ((u8) gObjectList[objectIndex].unk_0D8 == 1) {
-            if (playerId == 0) {
+            if (_idx == 0) {
                 func_80074894(objectIndex, gLakituTexturePtr);
                 return;
             }
@@ -238,7 +271,7 @@ void OLakitu::func_800791F0(s32 objectIndex, s32 playerId) {
         func_800722CC(objectIndex, 0x00000010);
         player->lakituProps &= ~THAWING_EFFECT;
     }
-    func_800C9018(playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
+    LakituSnd9018(playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
 }
 
 static const char* sLakituTextures[] = {
@@ -521,7 +554,7 @@ void OLakitu::init_obj_lakitu_red_flag_fishing(s32 objectIndex, s32 arg1) {
     clear_object_flag(objectIndex, 0x00000010);
     func_80073720(objectIndex);
     object_next_state(objectIndex);
-    func_800C8F80((u8) arg1, 0x0100FA28);
+    LakituSnd8F80((u8) arg1, 0x0100FA28);
 }
 
 void OLakitu::func_80079A5C(s32 objectIndex, UNUSED Player* player) {
@@ -593,7 +626,7 @@ void OLakitu::update_object_lakitu_fishing(s32 objectIndex, s32 playerId) {
             break;
         case 5:
             func_800722CC(objectIndex, 1);
-            func_800C9018((u8) playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
+            LakituSnd9018((u8) playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
             func_80072428(objectIndex);
             func_80073720(objectIndex);
             break;
@@ -626,7 +659,7 @@ void OLakitu::update_object_lakitu_fishing2(s32 objectIndex, s32 playerId) {
     switch (gObjectList[objectIndex].unk_0D6) {
         case 1:
             if (func_80086FA4(objectIndex) != 0) {
-                func_800C9060((u8) playerId, 0x1900A055U);
+                LakituSnd9060((u8) playerId, 0x1900A055U);
                 func_80073654(objectIndex);
             }
             break;
@@ -655,7 +688,7 @@ void OLakitu::update_object_lakitu_fishing2(s32 objectIndex, s32 playerId) {
             func_800722CC(objectIndex, 4);
             func_800722CC(objectIndex, 8);
             func_80073654(objectIndex);
-            func_800C9060((u8) playerId, 0x1900A056U);
+            LakituSnd9060((u8) playerId, 0x1900A056U);
             break;
         case 6:
             if (func_8007375C(objectIndex, 0x000000A0) != 0) {
@@ -672,7 +705,7 @@ void OLakitu::update_object_lakitu_fishing2(s32 objectIndex, s32 playerId) {
             func_80072428(objectIndex);
             player->lakituProps &= ~THAWING_EFFECT;
             func_800722CC(objectIndex, 1);
-            func_800C9018((u8) playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
+            LakituSnd9018((u8) playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
             break;
     }
 
@@ -822,7 +855,7 @@ void OLakitu::func_8007A3F0(s32 objectIndex, s32 arg1) {
     func_80086F10(objectIndex, 6, &D_800E69B0);
     gObjectList[objectIndex].unk_0D6 = 0;
     object_next_state(objectIndex);
-    func_800C8F80((u8) arg1, 0x0100FA28);
+    LakituSnd8F80((u8) arg1, 0x0100FA28);
 }
 
 void OLakitu::update_object_lakitu_reverse(s32 objectIndex, s32 playerId) {
@@ -852,7 +885,7 @@ void OLakitu::update_object_lakitu_reverse(s32 objectIndex, s32 playerId) {
                 func_80086F10(objectIndex, 6, &D_800E69F4);
                 gObjectList[objectIndex].unk_0D6 = 2;
                 gObjectList[objectIndex].unk_04C = 0x00000050;
-                func_800C9018((u8) playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
+                LakituSnd9018((u8) playerId, SOUND_ARG_LOAD(0x01, 0x00, 0xFA, 0x28));
                 return;
             }
             return;
@@ -867,7 +900,7 @@ void OLakitu::update_object_lakitu_reverse(s32 objectIndex, s32 playerId) {
 }
 
 void OLakitu::func_8007A66C(s32 objectIndex) {
-    Player* player = &gPlayers[LakituTargetPlayer(mPlayerId)];
+    Player* player = &gPlayers[mPlayerId];
 
     if (mCameraId == -1) {
         return;
@@ -887,7 +920,7 @@ void OLakitu::func_8007A66C(s32 objectIndex) {
 }
 
 void OLakitu::func_8007A778(s32 objectIndex) {
-    Player* player = &gPlayers[LakituTargetPlayer(mPlayerId)];
+    Player* player = &gPlayers[mPlayerId];
     if (mCameraId == -1) {
         return;
     }
@@ -928,9 +961,9 @@ void OLakitu::func_8007A910(s32 arg0) {
 void OLakitu::func_8007AA44(s32 playerId) {
     s32 objectIndex;
 
-    OLakitu::func_8007A910(LakituTargetPlayer(playerId));
+    OLakitu::func_8007A910(playerId);
     objectIndex = mLakituId;
-    gLakituTexturePtr = (const char**) &gLakituTextureBuffer[playerId];
+    gLakituTexturePtr = (const char**) &gLakituTextureBuffer[_idx];
     switch (gObjectList[objectIndex].unk_0D8) {
         case 1:
             OLakitu::func_80079114(objectIndex, playerId, 2);

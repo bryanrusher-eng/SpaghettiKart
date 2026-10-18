@@ -1,6 +1,8 @@
 #pragma once
 
 #include <libultraship.h>
+#include <cstring>
+#include <new>
 #include "engine/SpawnParams.h"
 #include "engine/editor/EditorMath.h"
 
@@ -37,6 +39,18 @@ public:
     std::vector<Triangle> Triangles;
 
     bool bPendingDestroy = false;
+
+    // Carrera en red: toda la simulacion tiene que dar lo mismo en todas las PCs. Los actores/objetos se reservan con la
+    // memoria a cero para que ningun miembro sin inicializar (hay varios en vehiculos y objetos) dependa de la basura
+    // del monton de cada PC (el humo del tren se activaba segun esa basura y separaba las partidas en Kalimari Desert).
+    static void* operator new(std::size_t size) {
+        void* p = ::operator new(size);
+        std::memset(p, 0, size);
+        return p;
+    }
+    static void operator delete(void* p) {
+        ::operator delete(p);
+    }
 
     virtual ~AActor() = default;  // Virtual destructor for proper cleanup in derived classes
 

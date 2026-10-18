@@ -514,6 +514,7 @@ void PortMenu::AddOnline() {
         .CVar("gOnlineWindowEnabled")
         .Options(ButtonOptions().Tooltip("Crear una sala (Host) o unirse a una por IP y puerto."))
         .WindowName("Online");
+    AddWidget(path, "Mod online por ezracorp", WIDGET_TEXT);
 }
 
 void PortMenu::AddDevTools() {

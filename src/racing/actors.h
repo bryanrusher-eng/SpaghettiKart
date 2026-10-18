@@ -12,6 +12,7 @@
 void cleanup_red_and_green_shells(struct ShellActor*);
 void actor_init(struct Actor*, Vec3f, Vec3s, Vec3f, s16);
 void actor_not_rendered(Camera*, struct Actor*);
+int actor_is_seen(struct Actor*);
 void actor_rendered(Camera*, struct Actor*);
 void func_80297340(Camera*);
 void func_802976D8(Vec3s);

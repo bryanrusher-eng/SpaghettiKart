@@ -102,6 +102,19 @@ uint64_t NowUs();
 // El juego la llama al aplicar cada tick de la carrera: 'waitUs' = tiempo que estuvo esperando los mandos de los demas.
 void StatsApplied(uint32_t tick, uint32_t waitUs);
 
+// Modo de latencia que pide el anfitrion al servidor: 0 = estable (margen amplio), 1 = equilibrada, 2 = rapida.
+void SetLatencyMode(int mode);
+
+// El anfitrion termina la carrera para todos (los demas vuelven al lobby) / un jugador sale solo de la carrera.
+void RaceAbortAll();
+void RaceLeaveSelf();
+
+// Diagnostico: descripcion del estado de la carrera (fotograma esperado, ack, anillo, agregador).
+std::string DebugRace(uint32_t wantedTick);
+
+// Verdadero mientras se espera el retraso de entrada que calcula el rele (justo al empezar la carrera).
+bool AggWaiting();
+
 bool RaceBusy(); // carrera cargandose o en marcha
 bool RacePending(); // hay un aviso de carrera por atender (aun no consumido por el juego)
 // Fin de carrera acordado por todos: el anfitrion sigue sirviendo mandos unos segundos por si alguien va atrasado.

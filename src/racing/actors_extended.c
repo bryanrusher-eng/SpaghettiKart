@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <macros.h>
 #include <defines.h>
@@ -445,7 +446,7 @@ void update_actor_triple_shell(TripleShellParent* parent, s16 shellType) {
                      * It has been re-added in for experimental purposes with slight adjustments
                      * to behave correctly and for clean code.
                      */
-                    if (CVarGetInteger("gShellsShootStraight", 0)) {
+                    if (online_cvar_int("gShellsShootStraight", 0)) {
                         // Forces shell 1 to fire inside a cone of -5 to +5 degrees
                         if ((shell->rotAngle < -0x38E) || (shell->rotAngle > 0x38E)) {
                             break;
@@ -475,7 +476,7 @@ void update_actor_triple_shell(TripleShellParent* parent, s16 shellType) {
                 }
                 if (parent->shellIndices[1] > 0.0f) {
                     shell = (struct ShellActor*) GET_ACTOR((s16) parent->shellIndices[1]);
-                    if (CVarGetInteger("gShellsShootStraight", 0)) {
+                    if (online_cvar_int("gShellsShootStraight", 0)) {
                         // Forces shell 2 to fire inside a cone of 5 to 14.95 degrees
                         if ((shell->rotAngle < 0x38E) || (shell->rotAngle > 0xAA1)) {
                             break;
@@ -505,7 +506,7 @@ void update_actor_triple_shell(TripleShellParent* parent, s16 shellType) {
                 }
                 if (parent->shellIndices[2] > 0.0f) {
                     shell = (struct ShellActor*) GET_ACTOR((s16) parent->shellIndices[2]);
-                    if (CVarGetInteger("gShellsShootStraight", 0)) {
+                    if (online_cvar_int("gShellsShootStraight", 0)) {
                         /**
                          * Forces shell 3 to fire inside a cone of -5 to -14.95 degrees
                          * -0xAA1 was originally -10 degrees (0x71C). However,

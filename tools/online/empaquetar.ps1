@@ -21,6 +21,13 @@ Get-ChildItem $src -Force | Where-Object { $_.Name -ne "logs" } | ForEach-Object
 # quita basura dentro de las carpetas copiadas
 Get-ChildItem $stage -Recurse -Include *.log, *.pdb | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# creditos del mod online
+@"
+Spaghetti Kart Online
+Mod online (salas por servidor, hasta 16 jugadores, lockstep): ezracorp
+Juego base: Spaghetti Kart (HarbourMasters).
+"@ | Set-Content (Join-Path $stage "CREDITOS.txt") -Encoding UTF8
+
 # configuracion minima: solo los datos de la sala online (el resto toma los valores por defecto del juego)
 $cfg = [ordered]@{ CVars = [ordered]@{ gOnline = [ordered]@{ Relay = $Relay; RelayPort = $RelayPort; Name = "Jugador"; Mode = 0 } } }
 $cfg | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $stage "spaghettify.cfg.json") -Encoding UTF8

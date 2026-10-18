@@ -3546,11 +3546,11 @@ void render_ice_block(s32 cameraId) {
     D_800E4620.l[0].l.dir[2] = D_80165840[2];
     gSPLight(gDisplayListHead++, &D_800E4620.l[0], LIGHT_1);
     gSPLight(gDisplayListHead++, &D_800E4620.a, LIGHT_2);
-    for (size_t i = 0; i < (size_t) gPlayerCountSelection1; i++) {
+    for (size_t i = 0; i < (size_t) gLakituListCount; i++) {
         objectIndex = gIndexLakituList[i];
         if (objectIndex) {}
         if (func_80072320(objectIndex, 4) != false) {
-            func_8005285C(cameraId, i);
+            func_8005285C(cameraId, gLakituPlayerList[i]);
         }
         func_80072320(objectIndex, 0x00000010);
     }
@@ -3561,7 +3561,7 @@ void func_80052D70(s32 cameraId, s32 playerId) {
     s32 test;
     Player* temp_v1;
 
-    temp_v1 = &gPlayerOne[playerId];
+    temp_v1 = &gPlayerOne[gLakituPlayerList[playerId]]; // playerId = posicion en la lista de Lakitus
     test = gIndexLakituList[playerId];
     if (func_80072320(test, 8) != 0) {
         D_80183E40[0] = temp_v1->pos[0];
@@ -3584,7 +3584,7 @@ void func_80052E30(s32 cameraId) {
     D_80183E80[1] = 0;
     D_80183E80[2] = 0;
     if (gPlayerCount == 1) {
-        for (var_s0 = 0; var_s0 < gPlayerCountSelection1; var_s0++) {
+        for (var_s0 = 0; var_s0 < gLakituListCount; var_s0++) {
             func_80052D70(cameraId, var_s0);
         }
     }

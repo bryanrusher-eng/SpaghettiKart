@@ -1975,7 +1975,7 @@ void update_player(s32 playerId) {
                     cpu_TargetSpeed[playerId] = CM_GetProps()->D_0D0096B8[gCCSelection];
                 }
 
-                if (CVarGetInteger("gEnableCustomCC", 0) == 1) {
+                if (online_cvar_int("gEnableCustomCC", 0) == 1) {
 #define calc_a(x, y, x2, y2) (y2 - y) / (x2 - x)
 #define calc_b(x, y, b) y - (b * x)
                     f32 a;
@@ -1984,7 +1984,7 @@ void update_player(s32 playerId) {
 #define calc(table)                                   \
     a = calc_a(50, table[CC_50], 150, table[CC_150]); \
     b = calc_b(50, table[CC_50], a);                  \
-    cpu_TargetSpeed[playerId] = a * CVarGetFloat("gCustomCC", 150.0f) + b;
+    cpu_TargetSpeed[playerId] = a * online_cvar_float("gCustomCC", 150.0f) + b;
                     // end of define
                     if ((gIsPlayerInCurve[playerId] == true) || (D_801630E8[playerId] == 1) ||
                         (D_801630E8[playerId] == -1) ||
@@ -2008,7 +2008,7 @@ void update_player(s32 playerId) {
                     cpu_TargetSpeed[playerId] = 3.3333333f;
                 }
                 // Override cpu speed for harder cpu enhancment
-                if (CVarGetInteger("gHarderCPU", 0) == 1) {
+                if (online_cvar_int("gHarderCPU", 0) == 1) {
                     cpu_TargetSpeed[playerId] = player->topSpeed * 1.5f;
                 }
 
@@ -6640,20 +6640,27 @@ void func_80019C50(s32 arg0) {
 
 void look_behind_toggle(s32 cameraIdx) {
     static bool lookBehindActive[NUM_CAMERAS] = {0};
-    // En carrera online cada PC controla su camara con el mando de SU slot (no el del jugador 0).
-    bool pressed = gControllers[online_race_setup_active() ? online_view_slot() : cameraIdx].button & L_CBUTTONS; // button held
+    // En carrera online la camara local sigue al kart del slot propio (playerId 0..15) pero SIEMPRE se dibuja en la
+    // pantalla 0, y mirar atras es solo visual: se lee el mando fisico de esta PC, sin el retraso de red.
+    bool online = online_race_setup_active() != 0;
+    bool pressed = online ? ((online_local_buttons() & L_CBUTTONS) != 0)
+                          : ((gControllers[cameraIdx].button & L_CBUTTONS) != 0); // button held
     ScreenContext* screenCtx = NULL;
 
     if (CVarGetInteger("gLookBehind", false) == false) {
         return;
     }
 
-    if (cameras[cameraIdx].playerId < 0 || cameras[cameraIdx].playerId >= 4) {
-        return;
-    }
+    if (online) {
+        screenCtx = &gScreenContexts[0];
+    } else {
+        if (cameras[cameraIdx].playerId < 0 || cameras[cameraIdx].playerId >= 4) {
+            return;
+        }
 
-    // Get the screen context
-    screenCtx = &gScreenContexts[cameras[cameraIdx].playerId];
+        // Get the screen context
+        screenCtx = &gScreenContexts[cameras[cameraIdx].playerId];
+    }
 
     if (gRaceState == RACE_IN_PROGRESS) {
         // Flip the camera
@@ -7063,7 +7070,7 @@ void cpu_decisions_branch_item(UNUSED s32 playerId, s16* branch, s32 itemId) {
             break;
     }
 
-    if (CVarGetInteger("gHarderCPU", false) == true) {
+    if (online_cvar_int("gHarderCPU", false) == true) {
         switch (itemId) {
             case ITEM_NONE:
                 value = -1;
@@ -7145,7 +7152,7 @@ void cpu_use_item_strategy(s32 playerId) {
 
             // Harder CPU Items
             if (((gNumPathPointsTraversed[playerId] + (playerId * 20) + 100) % 8 == 0) && (cpuStrategy->timer >= 512) &&
-                (CVarGetInteger("gHarderCPU", 0) == true)) {
+                (online_cvar_int("gHarderCPU", 0) == true)) {
 
                 cpu_decisions_branch_item(playerId, &cpuStrategy->branch,
                                           RaceManager_GetRandomCPUItem(gGPCurrentRaceRankByPlayerId[playerId]));

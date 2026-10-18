@@ -240,7 +240,7 @@ u16 check_player_camera_collision_rubberbanding(Player* player, Camera* camera, 
     s16 var_v0;
     u16 ret;
 
-    if (CVarGetInteger("gDisableRubberbanding", 0) != 0) {
+    if (online_cvar_int("gDisableRubberbanding", 0) != 0) {
         return true;
     }
 
@@ -2064,8 +2064,8 @@ void func_8002D268(Player* player, UNUSED Camera* camera, s8 screenId, s8 player
         player->pos[2] = nextZ;
     }
     player->pos[1] = nextY;
-    if (CVarGetInteger("gNoWallColision", 0)) {
-        player->pos[1] = nextY < CVarGetFloat("gMinHeight", 0.0f) ? CVarGetFloat("gMinHeight", 0.0f) : nextY;
+    if (online_cvar_int("gNoWallColision", 0)) {
+        player->pos[1] = nextY < online_cvar_float("gMinHeight", 0.0f) ? online_cvar_float("gMinHeight", 0.0f) : nextY;
     }
     if ((player->type & PLAYER_HUMAN) && (!(player->type & PLAYER_CPU))) {
         func_8002BB9C(player, &nextX, &nextZ, screenId, playerId, newVelocity);
@@ -2781,6 +2781,15 @@ f32 func_80030150(Player* player, s8 arg1) {
 void update_player_kart_hop(Player* player) {
     f32 hopInitialUpwardVelocity;
     f32 hopDownwardAcceleration;
+
+    if (online_rng_tracing()) {
+        char note[200];
+
+        snprintf(note, sizeof(note), "kart %d spd=%.3f surf=%d lak=%x unkC=%.3f pos=%.2f,%.2f,%.2f eff=%x",
+                 (int) (player - gPlayers), player->speed, (int) player->surfaceType, (unsigned) player->lakituProps,
+                 player->unk_DB4.unkC, player->pos[0], player->pos[1], player->pos[2], (unsigned) player->effects);
+        online_rng_note(note);
+    }
 
     if (((player->lakituProps & HELD_BY_LAKITU) != HELD_BY_LAKITU) && ((player->lakituProps & LAKITU_SCENE) != LAKITU_SCENE)) {
         if ((((player->speed / 18.0f) * 216.0f) >= 8.0f) && (player->unk_DB4.unkC < 1.0f)) {
@@ -4113,7 +4122,7 @@ void func_80037BB4(Player* player, Vec3f arg1) {
 
 void func_80037CFC(Player* player, struct Controller* controller, s8 arg2) {
 
-    if (CVarGetInteger("gEnableMoonJump", 0)) {
+    if (online_cvar_int("gEnableMoonJump", 0)) {
         moon_jump(player, controller);
     }
 

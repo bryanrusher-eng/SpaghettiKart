@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include "RaceManager.h"
 
 #include "AllActors.h"
@@ -64,7 +65,7 @@ void RaceManager::Load() {
 
 void RaceManager::PreInit() {
     // Ruleset options
-    if (CVarGetInteger("gDisableItemboxes", false) == true) {
+    if (online_cvar_int("gDisableItemboxes", false) == true) {
         gPlaceItemBoxes = false;
     } else {
         gPlaceItemBoxes = true;
@@ -97,7 +98,7 @@ void RaceManager::BeginPlay() {
 
 void RaceManager::PostInit() {
     // Ruleset options
-    if (CVarGetInteger("gAllThwompsAreMarty", false) == true) {
+    if (online_cvar_int("gAllThwompsAreMarty", false) == true) {
         for (auto& object : GetWorld()->Objects) {
             if (OThwomp* thwomp = dynamic_cast<OThwomp*>(object.get())) {
                 gObjectList[thwomp->_objectIndex].unk_0D5 = OThwomp::States::JAILED; // Sets all the thwomp behaviour flags to marty
@@ -106,7 +107,7 @@ void RaceManager::PostInit() {
         }
     }
 
-    if (CVarGetInteger("gAllBombKartsChase", false) == true) {
+    if (online_cvar_int("gAllBombKartsChase", false) == true) {
         for (auto& object : GetWorld()->Objects) {
             if (OBombKart* kart = dynamic_cast<OBombKart*>(object.get())) {
                 kart->Behaviour = OBombKart::States::CHASE;
@@ -114,7 +115,7 @@ void RaceManager::PostInit() {
         }
     }
 
-    if (CVarGetInteger("gGoFish", false) == true) {
+    if (online_cvar_int("gGoFish", false) == true) {
         OTrophy::Spawn(FVector(0,0,0), OTrophy::TrophyType::GOLD, OTrophy::Behaviour::GO_FISH);
     }
 }
@@ -125,7 +126,7 @@ void RaceManager::SetItemTables() {
 
     switch(gModeSelection) {
         case GRAND_PRIX:
-            if (CVarGetInteger("gHarderCPU", false) == true) {
+            if (online_cvar_int("gHarderCPU", false) == true) {
                 humanTableName = "mk:hard_cpu_grand_prix";
                 cpuTableName = "mk:hard_cpu_grand_prix";
             } else { // normal gameplay

@@ -41,7 +41,13 @@ const char* NetBridge_SlotName(int slot);
 unsigned NetBridge_DroppedMask(void);
 // Diagnostico: microsegundos monotonicos y registro de cada tick aplicado.
 unsigned long long NetBridge_NowUs(void);
+void NetBridge_RngTrace(unsigned int tick, const char* note);
 void NetBridge_StatsApplied(unsigned int tick, unsigned int waitUs);
+// Salir de la carrera: el anfitrion la termina para todos; un cliente sale solo.
+void NetBridge_RaceAbortAll(void);
+void NetBridge_RaceLeaveSelf(void);
+// Diagnostico: estado de la carrera en red (para el registro cuando se atasca esperando un fotograma).
+void NetBridge_DebugRace(unsigned int wantedTick, char* out, int outSize);
 // Victorias del jugador de ese slot en esta sala; y alta de una victoria (solo hace algo en el anfitrion).
 int NetBridge_Wins(int slot);
 void NetBridge_RaceWinner(int slot);

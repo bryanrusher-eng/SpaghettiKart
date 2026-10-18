@@ -59,6 +59,8 @@ enum PacketType : uint8_t {
     PKT_FRAME = 11,       // host -> clientes: mandos de todos para uno o varios ticks
     PKT_CHARACTER = 12,   // cliente -> host: cambio de personaje
     PKT_LEFT = 13,        // host -> clientes: un jugador salio de la carrera
+    PKT_ABORT = 14,       // host -> clientes: el anfitrion termino la carrera para todos (vuelta al lobby)
+    PKT_RACE_LEAVE = 15,  // cliente -> host: salgo de la carrera (sigo en la sala)
 };
 
 // Protocolo del servidor de rele (ver server/relay_server.py)
@@ -66,6 +68,9 @@ constexpr uint32_t kRelayMagic = 0x3152464D; // "MFR1"
 enum RelayType : uint8_t {
     R_CREATE = 1, R_CREATED = 2, R_JOIN = 3, R_JOINED = 4, R_DATA_UP = 5, R_DATA_FROM = 6,
     R_DATA_TO = 7, R_DATA_DOWN = 8, R_KEEPALIVE = 9, R_CLOSE = 10, R_ROOM_CLOSED = 11, R_ERROR = 12,
+    // agregador de mandos (carrera): el rele reune los mandos y difunde los fotogramas
+    R_PING = 13, R_PONG = 14, R_AGG_BEGIN = 15, R_AGG_PARAMS = 16, R_AGG_INPUT = 17, R_AGG_FRAME = 18,
+    R_AGG_LEFT = 19, R_AGG_END = 20, R_AGG_DROPPED = 21, R_AGG_LEAVE = 22,
 };
 constexpr uint64_t kRelayKeepaliveMs = 2000;
 constexpr uint64_t kRelayTimeoutMs = 9000;
@@ -187,6 +192,7 @@ std::vector<PeerInfo> g_roster;
 
 // ---------- carrera en red ----------
 constexpr int kRing = 256;
+constexpr uint32_t kFrameWindow = 128; // fotogramas por delante del consumido que se aceptan
 struct RaceState {
     bool active = false;
     bool pending = false;
@@ -207,6 +213,7 @@ struct RaceState {
     uint64_t lastStartSend = 0;
     // cliente
     uint32_t ackNext = 0;
+    uint32_t consumed = 0;                 // siguiente tick que el juego va a pedir (el anillo no admite fotogramas mas alla)
     Pad sent[kRing];
     uint32_t sentTick[kRing];
     uint32_t lastSubmitted = 0;
@@ -251,6 +258,7 @@ struct NetStats {
     Acc frameDt;   // us: intervalo entre ticks aplicados consecutivos
     Acc tickProc;  // us: duracion de cada llamada a Net::Tick()
     Acc hostWait;  // us (anfitrion): tiempo en completar cada tick desde que se completo el anterior
+    uint32_t lateTicks = 0;
     uint32_t ticks = 0, dupFrames = 0, gapFrames = 0, resendsHost = 0, resendsClient = 0, dupInputs = 0;
     uint32_t slowest[kMaxPlayers] = { 0 };
 };
@@ -259,6 +267,15 @@ uint64_t g_submitUs[kRing];
 uint64_t g_hostTickStartUs = 0;
 uint64_t g_lastApplyUs = 0;
 int g_lastArrive = -1;
+// Agregador en el rele: cuando esta activo, los mandos van al rele y los fotogramas vuelven de el (todos, incluido el
+// anfitrion). El retraso de entrada lo calcula el rele para cada jugador segun su RTT medido.
+bool g_aggActive = false;
+int g_aggDelay = 0;
+uint64_t g_aggBeginSend = 0;
+uint64_t g_raceBeginUs = 0;
+int g_latMode = 1;
+int g_abortSends = 0;      // host: avisos de "carrera terminada" que faltan por mandar
+uint64_t g_abortNext = 0;
 uint64_t g_statsWindowMs = 0;
 uint64_t g_statsCpuPrev = 0;
 FILE* g_statsFile = nullptr;
@@ -299,7 +316,7 @@ void StatsMaybeWrite(uint64_t nowMs) {
                      "aplica_ms_max,rtt_ms_prom,rtt_ms_min,rtt_ms_max,rtt_ms_jitter,espera_ms_prom,espera_ms_max,"
                      "dt_ms_prom,dt_ms_max,dt_ms_jitter,tick_net_us_prom,tick_net_us_max,fotogramas_dup,huecos,"
                      "reenvios_host,reenvios_cliente,mandos_dup,host_completa_ms_prom,host_completa_ms_max,"
-                     "mas_lento_slot,mas_lento_veces\n");
+                     "mas_lento_slot,mas_lento_veces,ticks_con_espera\n");
     }
     uint64_t cpu = ProcessCpu100ns();
     double cpuPct = (static_cast<double>(cpu - g_statsCpuPrev) / 1e7) / secs * 100.0;
@@ -318,7 +335,7 @@ void StatsMaybeWrite(uint64_t nowMs) {
     }
     std::fprintf(g_statsFile,
                  "%.0f,%s,%d,%d,%u,%.1f,%.1f,%.1f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.1f,%.2f,%.2f,"
-                 "%.2f,%.1f,%.0f,%u,%u,%u,%u,%u,%.2f,%.1f,%d,%u\n",
+                 "%.2f,%.1f,%.0f,%u,%u,%u,%u,%u,%.2f,%.1f,%d,%u,%u\n",
                  static_cast<double>(nowMs % 100000000ull) / 1000.0, g_role == Role::Host ? "host" : "cliente", slot,
                  humans, g_st.ticks, g_st.ticks / secs, g_st.txBytes / secs / 1024.0, g_st.rxBytes / secs / 1024.0,
                  g_st.txPk / secs, g_st.rxPk / secs, cpuPct, g_st.applyLat.avg() / 1000.0, g_st.applyLat.mx / 1000.0,
@@ -326,7 +343,7 @@ void StatsMaybeWrite(uint64_t nowMs) {
                  g_st.inputRtt.sd() / 1000.0, g_st.wait.avg() / 1000.0, g_st.wait.mx / 1000.0,
                  g_st.frameDt.avg() / 1000.0, g_st.frameDt.mx / 1000.0, g_st.frameDt.sd() / 1000.0,
                  g_st.tickProc.avg(), g_st.tickProc.mx, g_st.dupFrames, g_st.gapFrames, g_st.resendsHost,
-                 g_st.resendsClient, g_st.dupInputs, g_st.hostWait.avg() / 1000.0, g_st.hostWait.mx / 1000.0, top, topN);
+                 g_st.resendsClient, g_st.dupInputs, g_st.hostWait.avg() / 1000.0, g_st.hostWait.mx / 1000.0, top, topN, g_st.lateTicks);
     std::fflush(g_statsFile);
     g_st = NetStats();
     g_statsWindowMs = nowMs;
@@ -526,8 +543,11 @@ void BroadcastRoster() {
 }
 
 void ResetState() {
+    g_aggActive = false;
+    g_aggDelay = 0;
     g_cpuWins = 0;
     g_cpuWinsRoster = 0;
+    g_abortSends = 0;
     for (int s = 0; s < kMaxPlayers; s++) g_wins[s] = 0;
     g_peers.clear();
     g_roster.clear();
@@ -629,7 +649,7 @@ void HostPlayerLeft(const Peer& p) {
 
 // Host: completa todos los ticks para los que ya estan los mandos de cada humano.
 void HostTryComplete() {
-    if (!g_race.active) return;
+    if (!g_race.active || g_aggActive) return;
     for (int guard = 0; guard < kRing / 2; guard++) {
         uint32_t t = g_race.hostNext;
         int i = t % kRing;
@@ -689,6 +709,27 @@ void SendClientInput(uint32_t tick) {
         WritePad(w, g_race.sentTick[j] == t ? g_race.sent[j] : Pad());
     }
     SendTo(g_server, w);
+    g_race.lastInputSend = NowMs();
+}
+
+// Agregador: manda al rele el mando hasta el tick 'tick' (con los 5 anteriores por si se pierde algun paquete).
+void SendAggInput(uint32_t tick) {
+    uint32_t first = tick >= 5 ? tick - 5 : 0;
+    if (first < static_cast<uint32_t>(g_race.delay)) first = static_cast<uint32_t>(g_race.delay);
+    if (first > tick) first = tick;
+    Writer w;
+    w.u32(kRelayMagic);
+    w.u8(R_AGG_INPUT);
+    w.u32(g_race.ackNext);
+    w.u32(first);
+    w.u8(static_cast<uint8_t>(tick - first + 1));
+    for (uint32_t t = first; t <= tick; t++) {
+        int j = t % kRing;
+        WritePad(w, g_race.sentTick[j] == t ? g_race.sent[j] : Pad());
+    }
+    // Cada mando se manda DOS veces seguidas: un paquete perdido ya no retrasa a toda la sala un tick entero.
+    SendRaw(g_relay, w.b);
+    SendRaw(g_relay, w.b);
     g_race.lastInputSend = NowMs();
 }
 
@@ -758,6 +799,10 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
             g_peers.erase(it);
             g_rosterDirty = true;
             break;
+        case PKT_RACE_LEAVE:
+            Log(p.name + " salio de la carrera");
+            HostPlayerLeft(p); // sigue en la sala
+            break;
         case PKT_CHARACTER: {
             int c = r.u8();
             if (r.ok && c >= 0 && c < 8 && !g_race.active) {
@@ -800,6 +845,37 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
         default:
             break;
     }
+}
+
+// Fotogramas con los mandos de todos los humanos (de PKT_FRAME o de R_AGG_FRAME).
+void OnFrames(Reader& r) {
+    if (!g_race.active) return;
+    uint32_t first = r.u32();
+    int count = r.u8();
+    if (!r.ok) return;
+    if (first > g_race.ackNext) g_st.gapFrames++; // llegaron fotogramas posteriores sin los anteriores (perdida/reordenado)
+    for (int k = 0; k < count && r.ok; k++) {
+        Pad pads[kMaxPlayers];
+        for (int s = 0; s < kMaxPlayers; s++) {
+            if (g_race.humanMask & (1u << s)) pads[s] = ReadPad(r);
+        }
+        if (!r.ok) break;
+        uint32_t t = first + k;
+        // Ventana: solo se guardan fotogramas cercanos al que el juego esta consumiendo; si no, los nuevos pisarian en el
+        // anillo a los que aun hacen falta. Lo que quede fuera se pide otra vez (el acuse no avanza).
+        if (t >= g_race.ackNext && t < g_race.consumed + kFrameWindow) {
+            if (FrameKnown(t)) {
+                g_st.dupFrames++;
+            } else {
+                int j = t % kRing;
+                if (g_race.sentTick[j] == t && g_submitUs[j] != 0) {
+                    g_st.inputRtt.add(static_cast<double>(MonoUs() - g_submitUs[j]));
+                }
+            }
+            StoreFrame(t, pads);
+        }
+    }
+    while (FrameKnown(g_race.ackNext)) g_race.ackNext++;
 }
 
 void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t now) {
@@ -857,6 +933,16 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             }
             break;
         }
+        case PKT_ABORT: {
+            // El anfitrion termino la carrera para todos: se sale de ella (el juego vuelve al lobby al notarlo).
+            if (!(g_race.active || g_race.pending)) break;
+            Log("El anfitrion termino la carrera");
+            SetStatus("El anfitrion termino la carrera");
+            g_aggActive = false;
+            g_aggDelay = 0;
+            g_race = RaceState();
+            break;
+        }
         case PKT_LEFT: {
             int slot = r.u8();
             std::string name = r.str();
@@ -904,32 +990,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
         }
         case PKT_FRAME: {
             if (!g_race.active || g_cstate != ClientState::Connected) break;
-            uint32_t first = r.u32();
-            int count = r.u8();
-            int humans = HumanCount();
-            if (!r.ok) break;
-            if (first > g_race.ackNext) g_st.gapFrames++; // llegaron fotogramas posteriores sin los anteriores (perdida/reordenado)
-            for (int k = 0; k < count && r.ok; k++) {
-                Pad pads[kMaxPlayers];
-                for (int s = 0; s < kMaxPlayers; s++) {
-                    if (g_race.humanMask & (1u << s)) pads[s] = ReadPad(r);
-                }
-                if (!r.ok) break;
-                (void) humans;
-                uint32_t t = first + k;
-                if (t >= g_race.ackNext) {
-                    if (FrameKnown(t)) {
-                        g_st.dupFrames++;
-                    } else {
-                        int j = t % kRing;
-                        if (g_race.sentTick[j] == t && g_submitUs[j] != 0) {
-                            g_st.inputRtt.add(static_cast<double>(MonoUs() - g_submitUs[j]));
-                        }
-                    }
-                    StoreFrame(t, pads);
-                }
-            }
-            while (FrameKnown(g_race.ackNext)) g_race.ackNext++;
+            OnFrames(r);
             break;
         }
         default:
@@ -1004,6 +1065,52 @@ void HandleRelayPacket(uint8_t type, Reader& r, uint64_t now) {
             uint8_t gt = g.u8();
             if (!g.ok) break;
             HandleHostPacket(FakeAddr(cid), gt, g, now);
+            break;
+        }
+        case R_PING: { // el rele mide el RTT: se devuelve la marca tal cual
+            if (r.n - r.i >= 8) {
+                Writer w;
+                w.u32(kRelayMagic);
+                w.u8(R_PONG);
+                w.b.insert(w.b.end(), r.p + r.i, r.p + r.i + 8);
+                SendRaw(g_relay, w.b);
+            }
+            break;
+        }
+        case R_AGG_PARAMS: {
+            int d = r.u8();
+            uint16_t mask = r.u16();
+            if (!r.ok) break;
+            (void) mask;
+            g_aggActive = true;
+            g_aggDelay = std::max(1, std::min(d, 16));
+            // si la carrera ya cargo y todavia no se mando ningun mando, se corrige el retraso
+            if (g_race.active && !g_race.anySubmitted) g_race.delay = g_aggDelay;
+            break;
+        }
+        case R_AGG_FRAME: {
+            OnFrames(r);
+            break;
+        }
+        case R_AGG_DROPPED: {
+            // El servidor dejo de oirnos demasiado tiempo y nos dio por caidos: se sale de la carrera al instante
+            // (si no, el juego se quedaria esperando fotogramas que ya no llegaran).
+            if (!g_race.active) break;
+            Log("El servidor te dio por caido de la carrera");
+            SetStatus("Se perdio la conexion con la carrera");
+            g_raceEndAt = 0;
+            g_aggActive = false;
+            g_aggDelay = 0;
+            g_race = RaceState();
+            break;
+        }
+        case R_AGG_LEFT: {
+            int slot = r.u8();
+            if (!r.ok || g_role != Role::Host) break;
+            if (g_raceEndAt != 0) break; // la carrera ya esta terminando: quien deja de mandar mandos solo salio de los resultados
+            for (auto& kv : g_peers) {
+                if (kv.second.slot == slot) HostPlayerLeft(kv.second);
+            }
             break;
         }
         case R_DATA_DOWN: {
@@ -1307,8 +1414,30 @@ static void TickImpl() {
         }
     }
 
+    // 1b2) agregador: el anfitrion pide al rele que agregue la carrera (se repite hasta recibir los parametros)
+    static const bool noAgg = std::getenv("SK_NO_AGG") != nullptr; // solo pruebas: fuerza el camino con anfitrion agregador
+    if (!noAgg && g_role == Role::Host && g_viaRelay && g_race.starting && !g_aggActive && now - g_aggBeginSend >= 500 &&
+        !g_peers.empty()) {
+        g_aggBeginSend = now;
+        Writer w;
+        w.u32(kRelayMagic);
+        w.u8(R_AGG_BEGIN);
+        w.u8(static_cast<uint8_t>(g_peers.size()));
+        for (auto& kv : g_peers) {
+            w.u8(static_cast<uint8_t>(kv.second.slot));
+            w.u16(ntohs(kv.second.addr.sin_port)); // id del cliente en el rele
+        }
+        w.u8(static_cast<uint8_t>(g_latMode));
+        SendRaw(g_relay, w.b);
+    }
+
     // 1c) reenvios periodicos durante la carrera (si se pierde un paquete, nadie se queda esperando)
-    if (g_race.active) {
+    if (g_race.active && g_aggActive) {
+        if (g_race.anySubmitted && now - g_race.lastInputSend >= 100) {
+            g_st.resendsClient++;
+            SendAggInput(g_race.lastSubmitted);
+        }
+    } else if (g_race.active) {
         if (g_role == Role::Client && g_cstate == ClientState::Connected && g_race.anySubmitted &&
             now - g_race.lastInputSend >= 100) {
             g_st.resendsClient++;
@@ -1359,9 +1488,13 @@ static void TickImpl() {
     }
     if (g_role == Role::Host) {
         std::vector<std::string> dead;
+        // Con servidor y carrera en curso (o cargandose), quien se cayo lo avisa el servidor (R_AGG_LEFT): un jugador
+        // que esta cargando la pista no contesta durante varios segundos y NO por eso se ha ido.
+        const bool raceViaRelay = g_viaRelay && (g_race.active || g_race.pending || g_race.starting);
+        const uint64_t peerTimeout = raceViaRelay ? 180000 : kTimeoutMs;
         for (auto& kv : g_peers) {
             Peer& p = kv.second;
-            if (now - p.lastRecv > kTimeoutMs) {
+            if (now - p.lastRecv > peerTimeout) {
                 dead.push_back(kv.first);
                 continue;
             }
@@ -1379,6 +1512,12 @@ static void TickImpl() {
         if (g_rosterDirty || now - g_lastRoster >= 1000) {
             BroadcastRoster();
         }
+        if (g_abortSends > 0 && now >= g_abortNext) {
+            Writer w = Begin(PKT_ABORT);
+            for (auto& kv : g_peers) SendTo(kv.second.addr, w);
+            g_abortNext = now + 300;
+            g_abortSends--;
+        }
         for (auto it = g_pendingLeft.begin(); it != g_pendingLeft.end();) {
             if (now >= it->nextSend) {
                 Writer w = Begin(PKT_LEFT);
@@ -1390,7 +1529,7 @@ static void TickImpl() {
             }
             it = (it->sends >= 4) ? g_pendingLeft.erase(it) : it + 1;
         }
-        if (g_race.active) HostTryComplete(); // por si un jugador callado ya paso de 1 s
+        if (g_race.active && !g_aggActive) HostTryComplete(); // por si un jugador callado ya paso de 1 s
         if (g_raceEndAt != 0 && now >= g_raceEndAt) {
             g_raceEndAt = 0;
             RaceEnd();
@@ -1447,6 +1586,7 @@ uint64_t NowUs() { return MonoUs(); }
 void StatsApplied(uint32_t tick, uint32_t waitUs) {
     uint64_t nu = MonoUs();
     g_st.ticks++;
+    if (waitUs > 2000) g_st.lateTicks++;
     g_st.wait.add(waitUs);
     if (g_lastApplyUs != 0) g_st.frameDt.add(static_cast<double>(nu - g_lastApplyUs));
     g_lastApplyUs = nu;
@@ -1515,6 +1655,9 @@ bool HostStartRace(const RaceParams& p) {
     g_race.starting = true;
     g_race.lastStartSend = 0;
     Log("Iniciando la carrera para " + std::to_string(g_peers.size() + 1) + " jugador(es)");
+    g_aggActive = false;
+    g_abortSends = 0;
+    g_aggBeginSend = 0; // el bucle de red manda R_AGG_BEGIN al rele y lo repite hasta recibir los parametros
     return true;
 }
 
@@ -1553,8 +1696,9 @@ void RaceBegin() {
     for (const PeerInfo& pi : GetPeers()) {
         if (pi.slot >= 0 && pi.slot < kMaxPlayers) g_raceNames[pi.slot] = pi.name;
     }
+    g_raceBeginUs = MonoUs();
     g_race.active = true;
-    g_race.delay = std::max<int>(1, std::min<int>(params.delay, 12));
+    g_race.delay = g_aggActive ? g_aggDelay : std::max<int>(1, std::min<int>(params.delay, 12));
     g_race.humanMask = 0;
     for (const RaceHuman& h : params.humans) {
         if (h.slot >= 0 && h.slot < kMaxPlayers) g_race.humanMask |= static_cast<uint16_t>(1u << h.slot);
@@ -1565,24 +1709,68 @@ void RaceBegin() {
         for (int s = 0; s < kMaxPlayers; s++) g_race.inputTick[i][s] = 0xFFFFFFFFu;
         g_race.sentTick[i] = 0xFFFFFFFFu;
     }
-    // los primeros 'delay' ticks salen neutros en todas las PCs (nadie ha podido pulsar aun)
-    Pad neutral[kMaxPlayers];
-    for (int t = 0; t < g_race.delay; t++) StoreFrame(static_cast<uint32_t>(t), neutral);
-    g_race.hostNext = static_cast<uint32_t>(g_race.delay);
-    g_race.ackNext = static_cast<uint32_t>(g_race.delay);
-    for (int s = 0; s < kMaxPlayers; s++) g_race.peerAck[s] = static_cast<uint32_t>(g_race.delay);
+    if (g_aggActive) {
+        // con agregador, el rele emite todos los fotogramas desde el tick 0 (los iniciales salen neutros)
+        g_race.hostNext = 0;
+        g_race.ackNext = 0;
+    } else {
+        // los primeros 'delay' ticks salen neutros en todas las PCs (nadie ha podido pulsar aun)
+        Pad neutral[kMaxPlayers];
+        for (int t = 0; t < g_race.delay; t++) StoreFrame(static_cast<uint32_t>(t), neutral);
+        g_race.hostNext = static_cast<uint32_t>(g_race.delay);
+        g_race.ackNext = static_cast<uint32_t>(g_race.delay);
+        for (int s = 0; s < kMaxPlayers; s++) g_race.peerAck[s] = static_cast<uint32_t>(g_race.delay);
+    }
     Log("Carrera cargada: " + std::to_string(HumanCount()) + " humano(s), retraso " + std::to_string(g_race.delay));
 }
 
 void RaceEnd() {
     g_raceEndAt = 0;
     if (g_race.active || g_race.pending) Log("Carrera terminada");
+    if (g_aggActive && g_role == Role::Host && g_viaRelay) SendRelay(R_AGG_END);
+    g_aggActive = false;
+    g_aggDelay = 0;
     g_race = RaceState();
 }
 
 bool RaceActive() { return g_race.active; }
 
 bool RacePending() { return g_race.pending; }
+
+void SetLatencyMode(int mode) {
+    g_latMode = std::max(0, std::min(mode, 2));
+}
+
+std::string DebugRace(uint32_t wantedTick) {
+    int known = 0;
+    uint32_t minT = 0xFFFFFFFFu, maxT = 0;
+    for (int i = 0; i < kRing; i++) {
+        if (g_race.frameReady[i]) {
+            known++;
+            minT = std::min(minT, g_race.frameTick[i]);
+            maxT = std::max(maxT, g_race.frameTick[i]);
+        }
+    }
+    int wi = wantedTick % kRing;
+    char b[400];
+    std::snprintf(b, sizeof(b),
+                  "ESPERA tick=%u ack=%u hostNext=%u lastSubmitted=%u delay=%d agg=%d active=%d anilloListos=%d min=%u max=%u "
+                  "slotEsperado(ready=%d tick=%u) gaps=%u dups=%u",
+                  wantedTick, g_race.ackNext, g_race.hostNext, g_race.lastSubmitted, g_race.delay, g_aggActive ? 1 : 0,
+                  g_race.active ? 1 : 0, known, minT, maxT, g_race.frameReady[wi] ? 1 : 0, g_race.frameTick[wi],
+                  g_st.gapFrames, g_st.dupFrames);
+    return std::string(b);
+}
+
+bool AggWaiting() {
+    // Carrera por el servidor con mas de un humano y todavia sin parametros del agregador: hay que esperarlos
+    // (unos milisegundos) para no mandar el primer mando con un retraso equivocado. Si el servidor no los da en 3 s
+    // (servidor antiguo), se sigue con el camino de siempre (el anfitrion agrega).
+    static const bool noAgg = std::getenv("SK_NO_AGG") != nullptr;
+    if (noAgg || !g_viaRelay || !g_race.active || g_aggActive || g_race.anySubmitted) return false;
+    if (g_race.humanMask & (g_race.humanMask - 1)) return (MonoUs() - g_raceBeginUs) < 3000000ull;
+    return false;
+}
 
 bool RaceBusy() { return (g_race.active && g_raceEndAt == 0) || g_race.pending || g_race.starting; }
 
@@ -1609,6 +1797,31 @@ int RaceWins(int slot) {
         if (pi.slot == slot) return pi.wins;
     }
     return 0;
+}
+
+void RaceAbortAll() {
+    if (g_role != Role::Host) return;
+    // Se manda al instante (3 copias seguidas) y se repite dos veces mas despues por si se pierden todas.
+    Writer w = Begin(PKT_ABORT);
+    for (int i = 0; i < 3; i++) {
+        for (auto& kv : g_peers) SendTo(kv.second.addr, w);
+    }
+    g_abortSends = 2;
+    g_abortNext = NowMs() + 300;
+    RaceEnd();
+}
+
+void RaceLeaveSelf() {
+    if (g_role == Role::Client && g_cstate == ClientState::Connected) {
+        Writer w = Begin(PKT_RACE_LEAVE);
+        SendTo(g_server, w);
+        SendTo(g_server, w);
+        if (g_viaRelay && g_aggActive) {
+            SendRelay(R_AGG_LEAVE); // el servidor deja de esperar mis mandos al instante
+            SendRelay(R_AGG_LEAVE);
+        }
+    }
+    RaceEnd();
 }
 
 void RaceEndGraceful() {
@@ -1647,6 +1860,10 @@ void RaceSubmitLocal(uint32_t tick, const Pad& pad) {
     g_submitUs[i] = MonoUs();
     g_race.lastSubmitted = tick;
     g_race.anySubmitted = true;
+    if (g_aggActive) {
+        SendAggInput(tick); // todos (tambien el anfitrion) mandan su mando al agregador del rele
+        return;
+    }
     if (g_role == Role::Host) {
         g_race.inputs[i][0] = pad;
         g_race.inputTick[i][0] = tick;
@@ -1663,6 +1880,7 @@ bool RaceGetFrame(uint32_t tick, Pad out[kMaxPlayers]) {
     if (!FrameKnown(tick)) return false;
     int i = tick % kRing;
     for (int s = 0; s < kMaxPlayers; s++) out[s] = g_race.frame[i][s];
+    if (tick + 1 > g_race.consumed) g_race.consumed = tick + 1;
     return true;
 }
 

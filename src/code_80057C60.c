@@ -232,7 +232,9 @@ Mtx D_80183D60;
 s32 D_80183DA0;
 f32 D_80183DA8[4];
 //! Lakitu?
-s32 gIndexLakituList[4];
+s32 gIndexLakituList[16];
+s32 gLakituPlayerList[16];
+s32 gLakituListCount;
 f32 D_80183DC8[4];
 //! Indexes for the objects associated with the Bomb Karts
 s32 gIndexObjectBombKart[NUM_BOMB_KARTS_MAX];
@@ -282,7 +284,7 @@ s32 indexObjectList2[32];
  * I'm also not certain about its dimensions
  * I think the entires in this array are way over-sized
  */
-const char* gLakituTextureBuffer[4][2];
+const char* gLakituTextureBuffer[16][2];
 /**
  * Boos in Banshee Boardwalk
  * Spawners for the 4 small fire breaths inside Bowser's Castle
@@ -492,7 +494,7 @@ void func_80057FC4(ScreenContext* ctx, u32 arg0) {
         case 9:
         case 10:
         case 11:
-            if (CVarGetInteger("gMultiplayerNoFeatureCuts", 0) == true) {
+            if (online_cvar_int("gMultiplayerNoFeatureCuts", 0) == true) {
                 func_80052080(ctx);
             }
             break;

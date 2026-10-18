@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <stdint.h>
 #include <libultraship.h>
 #include <macros.h>
@@ -810,7 +811,7 @@ s32 is_colliding_with_drivable_surface(struct Collision* collision, f32 bounding
  */
 s32 is_colliding_with_wall2(struct Collision* arg, f32 boundingBoxSize, f32 x1, f32 y1, f32 z1, u16 surfaceIndex, f32 posX,
                             f32 posY, f32 posZ) {
-    if (CVarGetInteger("gNoWallColision", 0)) {
+    if (online_cvar_int("gNoWallColision", 0)) {
         return NO_COLLISION;
     }
     CollisionTriangle* triangle = &gCollisionMesh[surfaceIndex];
@@ -995,7 +996,7 @@ s32 is_colliding_with_wall2(struct Collision* arg, f32 boundingBoxSize, f32 x1, 
  */
 s32 is_colliding_with_wall1(struct Collision* arg, f32 boundingBoxSize, f32 x1, f32 y1, f32 z1, u16 surfaceIndex, f32 posX,
                             f32 posY, f32 posZ) {
-    if (CVarGetInteger("gNoWallColision", 0)) {
+    if (online_cvar_int("gNoWallColision", 0)) {
         return NO_COLLISION;
     }
     CollisionTriangle* triangle = &gCollisionMesh[surfaceIndex];

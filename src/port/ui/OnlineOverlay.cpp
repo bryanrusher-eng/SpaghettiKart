@@ -146,6 +146,38 @@ void OverlayWindow::DrawElement() {
         DrawShadowText(dl, font, size, ImVec2(org.x + tx, org.y + ty), IM_COL32(255, 235, 120, 255), name.c_str());
     }
 
+    // --- salir de la partida: aviso (START) y recordatorio pequeno ---
+    {
+        auto vpx = GetInterpreter()->mGameWindowViewport;
+        float vwx = static_cast<float>(OTRGetGameViewportWidth());
+        float vhx = static_cast<float>(OTRGetGameViewportHeight());
+        if (v.exitPrompt != 0) {
+            const char* l1 = v.exitPrompt == 1 ? "TERMINAR LA CARRERA PARA TODOS?" : "SALIR DE LA CARRERA?";
+            const char* l2 = v.exitPrompt == 1 ? "Todos vuelven al lobby para hacer cambios" : "Volveras al lobby; los demas siguen";
+            const char* l3 = "A  Si          B  No";
+            float s1 = baseSize * 1.7f, s2 = baseSize * 1.15f;
+            ImVec2 t1 = font->CalcTextSizeA(s1, 10000.0f, 0.0f, l1);
+            ImVec2 t2 = font->CalcTextSizeA(s2, 10000.0f, 0.0f, l2);
+            ImVec2 t3 = font->CalcTextSizeA(s2, 10000.0f, 0.0f, l3);
+            float w = std::max(std::max(t1.x, t2.x), t3.x) + 50.0f;
+            float h = t1.y + t2.y + t3.y + 56.0f;
+            float x0 = org.x + static_cast<float>(vpx.x) + (vwx - w) * 0.5f;
+            float y0 = org.y + static_cast<float>(vpx.y) + (vhx - h) * 0.5f;
+            dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + w, y0 + h), IM_COL32(8, 8, 24, 230), 10.0f);
+            dl->AddRect(ImVec2(x0, y0), ImVec2(x0 + w, y0 + h), IM_COL32(255, 200, 90, 255), 10.0f, 0, 2.5f);
+            DrawShadowText(dl, font, s1, ImVec2(x0 + (w - t1.x) * 0.5f, y0 + 14.0f), IM_COL32(255, 220, 120, 255), l1);
+            DrawShadowText(dl, font, s2, ImVec2(x0 + (w - t2.x) * 0.5f, y0 + 24.0f + t1.y), IM_COL32(220, 220, 235, 255), l2);
+            DrawShadowText(dl, font, s2, ImVec2(x0 + (w - t3.x) * 0.5f, y0 + 38.0f + t1.y + t2.y), IM_COL32(140, 255, 160, 255), l3);
+        } else if (!online_results_active()) {
+            const char* hint = "START  Salir";
+            float sh = baseSize * 0.9f;
+            ImVec2 th = font->CalcTextSizeA(sh, 10000.0f, 0.0f, hint);
+            dl->AddText(font, sh, ImVec2(org.x + static_cast<float>(vpx.x) + vwx - th.x - 12.0f,
+                                         org.y + static_cast<float>(vpx.y) + vhx - th.y - 8.0f),
+                        IM_COL32(255, 255, 255, 110), hint);
+        }
+    }
+
     // --- tabla de posiciones mientras se mantiene L ---
     if (v.lHeld) {
         auto vp = GetInterpreter()->mGameWindowViewport;

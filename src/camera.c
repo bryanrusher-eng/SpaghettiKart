@@ -23,6 +23,7 @@
 
 #include "engine/GameAPI.h"
 #include "port/Game.h"
+#include "online_race.h"
 
 f32 D_800DDB30[] = { 0.4f, 0.6f, 0.275f, 0.3f };
 
@@ -1154,6 +1155,10 @@ void func_8001F394(Player* player) {
     }
     if (player == gPlayerFour) {
         playerIndex = 3;
+    }
+    if (online_race_setup_active()) {
+        // Estas tablas (de 4 posiciones) son POR CAMARA: la camara de esta PC es la 0 aunque siga al kart del slot 5, 9...
+        playerIndex = camera->cameraId;
     }
 
     if (D_80164A08[playerIndex] == 0) {

@@ -114,7 +114,7 @@ void spawn_player(Player* player, s8 playerIndex, f32 startingRow, f32 startingC
             player->topSpeed = gTopSpeedTable[CC_BATTLE][player->characterId];
             break;
     }
-    if (CVarGetInteger("gEnableCustomCC", 0) == 1) {
+    if (online_cvar_int("gEnableCustomCC", 0) == 1) {
 #define calc_a(x, y, x2, y2) (y2 - y) / (x2 - x)
 #define calc_b(x, y, b) y - (b * x)
         f32 a;
@@ -123,7 +123,7 @@ void spawn_player(Player* player, s8 playerIndex, f32 startingRow, f32 startingC
 #define calc(table, field)                                                                      \
     a = calc_a(50, table[CC_50][player->characterId], 150, table[CC_150][player->characterId]); \
     b = calc_b(50, table[CC_50][player->characterId], a);                                       \
-    player->field = a * CVarGetFloat("gCustomCC", 150.0f) + b;
+    player->field = a * online_cvar_float("gCustomCC", 150.0f) + b;
 
         calc(gTopSpeedTable, topSpeed);
         calc(D_800E2400, unk_084);
@@ -901,10 +901,27 @@ void spawn_and_set_player_spawns(void) {
                 switch (gModeSelection) {
                     case GRAND_PRIX: {
                         s32 slot;
-                        // Dos columnas (x +-20) y una fila cada 20 unidades, una por kart.
+                        s32 rowSpacing = 0x14;
+
+                        if (online_race_setup_active()) {
+                            // La parrilla de 16 karts es mas larga que la original (8): en pistas con poca recta tras la
+                            // salida (Toad's Turnpike) los ultimos puestos quedaban fuera de la pista y caian al vacio.
+                            // Se acercan las filas hasta que el ultimo kart tenga suelo (igual en todas las PCs).
+                            while (rowSpacing > 6) {
+                                f32 rearZ = sp5C + 0x1E + 250.0f + (f32) (rowSpacing * (NUM_PLAYERS - 1));
+                                f32 h0 = spawn_actor_on_surface((f32) (sp5E + 0x14), sp5A + 50.0f, rearZ);
+                                f32 h1 = spawn_actor_on_surface((f32) (sp5E - 0x14), sp5A + 50.0f, rearZ);
+
+                                if (h0 > -2900.0f && h0 < 2900.0f && h1 > -2900.0f && h1 < 2900.0f) {
+                                    break;
+                                }
+                                rowSpacing -= 2;
+                            }
+                        }
+                        // Dos columnas (x +-20) y una fila cada 20 unidades (menos si hace falta, ver arriba), una por kart.
                         for (slot = 0; slot < NUM_PLAYERS; slot++) {
                             D_80165210[slot] = sp5E + (((slot & 1) == 0) ? 0x14 : -0x14);
-                            D_80165230[slot] = sp5C + 0x1E + (0x14 * slot);
+                            D_80165230[slot] = sp5C + 0x1E + (rowSpacing * slot);
                         }
                         spawn_players_gp_one_player(D_80165210, D_80165230, sp5A);
                         break;

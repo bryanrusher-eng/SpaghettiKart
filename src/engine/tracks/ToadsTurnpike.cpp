@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include <vector>
@@ -153,10 +154,10 @@ void ToadsTurnpike::BeginPlay() {
         f32 a = ((gCCSelection * 90.0) / 216.0f) + 4.583333333333333;
         f32 b = ((gCCSelection * 90.0) / 216.0f) + 2.9166666666666665;
 
-        _numTrucks = CVarGetInteger("gNumTrucks", 7);
-        _numBuses = CVarGetInteger("gNumBuses", 7);
-        _numTankerTrucks = CVarGetInteger("gNumTankerTrucks", 7);
-        _numCars = CVarGetInteger("gNumCars", 7);
+        _numTrucks = online_cvar_int("gNumTrucks", 7);
+        _numBuses = online_cvar_int("gNumBuses", 7);
+        _numTankerTrucks = online_cvar_int("gNumTankerTrucks", 7);
+        _numCars = online_cvar_int("gNumCars", 7);
 
         // Other game modes spawn seven of each vehicle
         if (gModeSelection == TIME_TRIALS) {

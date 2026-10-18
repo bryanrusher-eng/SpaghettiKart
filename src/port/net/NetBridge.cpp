@@ -47,7 +47,14 @@ void NetBridge_RaceEndGraceful(void) { Net::RaceEndGraceful(); }
 
 int NetBridge_RaceActive(void) { return Net::RaceActive() ? 1 : 0; }
 
-int NetBridge_RaceDelay(void) { return Net::RaceDelay(); }
+int NetBridge_RaceDelay(void) {
+    // justo al empezar, el rele manda el retraso de entrada de este jugador: se espera (milisegundos) antes del 1er mando
+    for (int i = 0; i < 3000 && Net::AggWaiting(); i++) {
+        Net::Tick();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return Net::RaceDelay();
+}
 
 int NetBridge_LocalSlot(void) { return Net::GetLocalSlot(); }
 
@@ -55,7 +62,71 @@ unsigned NetBridge_DroppedMask(void) { return Net::RaceDroppedMask(); }
 
 unsigned long long NetBridge_NowUs(void) { return Net::NowUs(); }
 
+#ifdef _WIN32
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+// Diagnostico: SK_ONLINE_RNGTRACE=archivo anota, por cada numero aleatorio de la SIMULACION, el tick y las funciones que
+// lo pidieron. Comparando el archivo de dos PCs se ve en que funcion empiezan a diferir.
+void NetBridge_RngTrace(unsigned int tick, const char* note) {
+    static FILE* f = nullptr;
+    static bool init = false;
+    static HANDLE proc = nullptr;
+    static unsigned long long calls = 0;
+
+    if (!init) {
+        init = true;
+        const char* p = std::getenv("SK_ONLINE_RNGTRACE");
+        if (p != nullptr) {
+            f = std::fopen(p, "w");
+            if (f != nullptr) {
+                proc = GetCurrentProcess();
+                SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
+                SymInitialize(proc, nullptr, TRUE);
+            }
+        }
+    }
+    if (f == nullptr) {
+        return;
+    }
+    if (note != nullptr) {
+        std::fprintf(f, "# t%u %s\n", tick, note);
+        return;
+    }
+    void* frames[8];
+    USHORT n = CaptureStackBackTrace(2, 6, frames, nullptr);
+    char buf[sizeof(SYMBOL_INFO) + 256];
+    SYMBOL_INFO* sym = reinterpret_cast<SYMBOL_INFO*>(buf);
+    std::fprintf(f, "%llu t%u", ++calls, tick);
+    for (USHORT i = 0; i < n && i < 4; i++) {
+        std::memset(buf, 0, sizeof(buf));
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen = 255;
+        DWORD64 disp = 0;
+        if (SymFromAddr(proc, reinterpret_cast<DWORD64>(frames[i]), &disp, sym)) {
+            std::fprintf(f, " %s", sym->Name);
+        } else {
+            std::fprintf(f, " ?");
+        }
+    }
+    std::fprintf(f, "\n");
+    if ((calls % 64) == 0) {
+        std::fflush(f);
+    }
+}
+#else
+void NetBridge_RngTrace(unsigned int tick, const char* note) { (void) tick; (void) note; }
+#endif
+
 void NetBridge_StatsApplied(unsigned int tick, unsigned int waitUs) { Net::StatsApplied(tick, waitUs); }
+
+void NetBridge_RaceAbortAll(void) { Net::RaceAbortAll(); }
+
+void NetBridge_RaceLeaveSelf(void) { Net::RaceLeaveSelf(); }
+
+void NetBridge_DebugRace(unsigned int wantedTick, char* out, int outSize) {
+    std::string s = Net::DebugRace(wantedTick);
+    std::snprintf(out, static_cast<size_t>(outSize), "%s", s.c_str());
+}
 
 int NetBridge_Wins(int slot) { return Net::RaceWins(slot); }
 

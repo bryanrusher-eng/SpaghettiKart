@@ -2238,13 +2238,25 @@ void func_80078288(s32 objectIndex) {
             break;
         case 1:
             if (gGamestate != 9) {
-                sp3A = ((gPlayerOne->speed / 18) * 216) / 2;
+                // Carrera en red: la nieve sigue al kart del jugador 0 en TODAS las PCs. Cuando un copo toca el suelo
+                // reaparece (y pide numeros aleatorios), y ese momento depende de la altura del kart que sigue; si cada PC
+                // siguiera a su propio kart, el generador aleatorio de la simulacion se separaria (Frappe Snowland).
+                Player* viewPlayer = gPlayerOne;
+
+                sp3A = ((viewPlayer->speed / 18) * 216) / 2;
                 sp3E = (random_int(0x000FU) - sp3A) + 0x2D;
                 sp3C = random_int(0x012CU) + 0x1E;
-                temp_t6 = camera1->rot[1] + ((s32) (random_int(0x3000U) - 0x1800) / (s16) ((sp3A / 15) + 1));
-                gObjectList[objectIndex].origin_pos[0] = gPlayerOne->pos[0] + (sins(temp_t6) * sp3C);
-                gObjectList[objectIndex].origin_pos[1] = sp3E + gPlayerOne->unk_074;
-                gObjectList[objectIndex].origin_pos[2] = gPlayerOne->pos[2] + (coss(temp_t6) * sp3C);
+                {
+                    s16 divisor = (s16) ((sp3A / 15) + 1);
+
+                    if (divisor == 0) {
+                        divisor = 1; // marcha atras a cierta velocidad: el original dividia entre cero y se cerraba
+                    }
+                    temp_t6 = camera1->rot[1] + ((s32) (random_int(0x3000U) - 0x1800) / divisor);
+                }
+                gObjectList[objectIndex].origin_pos[0] = viewPlayer->pos[0] + (sins(temp_t6) * sp3C);
+                gObjectList[objectIndex].origin_pos[1] = sp3E + viewPlayer->unk_074;
+                gObjectList[objectIndex].origin_pos[2] = viewPlayer->pos[2] + (coss(temp_t6) * sp3C);
                 gObjectList[objectIndex].unk_0C4 = random_int(0x0400U) + 0x100;
                 gObjectList[objectIndex].unk_01C[0] = (f32) (((f32) random_int(0x0064U) * 0.03) + 2.0);
                 gObjectList[objectIndex].velocity[1] = (f32) (-0.3 - (f64) (f32) (random_int(0x0032U) * 0.01));
@@ -3099,6 +3111,7 @@ void func_8008421C(UNUSED s32 arg0, s32 playerId) {
 void func_800842C8(void) {
     s32 objectIndex;
     s32 playerId;
+    s32 lakituIdx;
 
     D_80165834[0] += 0x200;
     D_80165834[1] += 0x400;
@@ -3106,11 +3119,11 @@ void func_800842C8(void) {
     D_8016582C[0] += 0x2000;
     D_8016582C[1] += 0x1000;
     D_8016582C[2] += 0x1800;
-    for (playerId = 0; playerId < gPlayerCountSelection1; playerId++) {
-        objectIndex = gIndexLakituList[playerId];
+    for (lakituIdx = 0; lakituIdx < gLakituListCount; lakituIdx++) {
+        objectIndex = gIndexLakituList[lakituIdx];
         if (func_80072320(objectIndex, 0x00000020) != 0) {
             func_800722CC(objectIndex, 0x00000020);
-            func_8008421C(objectIndex, playerId);
+            func_8008421C(objectIndex, gLakituPlayerList[lakituIdx]);
         }
     }
     for (playerId = 0; playerId < gObjectParticle2_SIZE; playerId++) {

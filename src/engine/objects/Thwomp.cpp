@@ -6,6 +6,7 @@
 #include "engine/World.h"
 
 #include "port/Game.h"
+#include "online_race.h"
 #include "port/interpolation/FrameInterpolation.h"
 
 extern "C" {
@@ -345,6 +346,13 @@ void OThwomp::SetVisibility(s32 objectIndex) { // func_8008A4CC
     Camera* camera;
 
     clear_object_flag(objectIndex, 0x00070000);
+    if (online_no_cull()) {
+        // Carrera en red: la visibilidad/actividad no puede depender de la seccion de la camara de cada PC.
+        if (gObjectList[objectIndex].state != 0) {
+            set_object_flag(objectIndex, 0x00010000 | 0x00020000 | VISIBLE);
+        }
+        return;
+    }
     for (loopIndex = 0, camera = camera1; loopIndex < gPlayerCountSelection1; loopIndex++, camera++) {
         if (gObjectList[objectIndex].state != 0) {
             if ((D_8018CF68[loopIndex] >= (gObjectList[objectIndex].unk_0DF - 1)) &&
@@ -381,7 +389,10 @@ void OThwomp::func_8007F8D8() {
     }
 
     if (var_s4 != 0) {
-        for (var_s0 = 0; var_s0 < 4; var_s0++, player++) {
+        // Carrera en red: pueden ser hasta 16 jugadores humanos; cualquiera de ellos activa los Thwomps.
+        s32 numChecked = online_race_setup_active() ? NUM_PLAYERS : 4;
+
+        for (var_s0 = 0; var_s0 < numChecked; var_s0++, player++) {
             if ((player->type & PLAYER_EXISTS) && !(player->type & PLAYER_CPU)) {
                 if (OThwomp::func_8007F75C(var_s0) != 0) {
                     break;

@@ -1,4 +1,5 @@
 #include "online_menu.h"
+#include "online_race.h"
 #include <libultraship.h>
 #include <libultra/types.h>
 #include <macros.h>
@@ -5699,6 +5700,13 @@ void func_8009E000(s32 arg0) {
 void func_8009E020(s32 arg0, s32 arg1) {
     s32 temp;
 
+    // Carrera en red: solo hay pantalla para el kart de esta PC (la 0); los demas jugadores no tienen transicion.
+    if (online_race_setup_active()) {
+        if (arg0 != online_view_slot()) {
+            return;
+        }
+        arg0 = 0;
+    }
     if (arg1 == 0) {
         arg1 = 1;
     }
@@ -5717,6 +5725,12 @@ void func_8009E020(s32 arg0, s32 arg1) {
 void func_8009E088(s32 arg0, s32 arg1) {
     s32 temp;
 
+    if (online_race_setup_active()) {
+        if (arg0 != online_view_slot()) {
+            return;
+        }
+        arg0 = 0;
+    }
     if (arg1 == 0) {
         arg1 = 1;
     }
@@ -6339,6 +6353,11 @@ static void draw_version(void) {
 
     set_text_color(TEXT_GREEN);
     print_text1_right(column, 0xEA, SPAGHETTI_VERSION, 0, 0.5f, 0.5f);
+
+    // Credito del mod online (abajo a la izquierda).
+    set_text_color(TEXT_YELLOW);
+    // (el modo 0 empieza a escribir en la columna; "left" y "right" anclan el borde DERECHO del texto)
+    print_text1(0x08, 0xEA, "MOD ONLINE POR EZRACORP", 0, 0.5f, 0.5f, 0);
 }
 
 #ifdef NON_MATCHING

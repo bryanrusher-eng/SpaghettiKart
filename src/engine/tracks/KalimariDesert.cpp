@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include <vector>
@@ -175,9 +176,9 @@ void KalimariDesert::BeginPlay() {
 
         s32 centerWaypoint = 160;
 
-        _numTrains = CVarGetInteger("gNumTrains", 2);
-        _numCarriages = CVarGetInteger("gNumCarriages", 5);
-        _tender = (ATrain::TenderStatus)CVarGetInteger("gHasTender", 1);
+        _numTrains = online_cvar_int("gNumTrains", 2);
+        _numCarriages = online_cvar_int("gNumCarriages", 5);
+        _tender = (ATrain::TenderStatus)online_cvar_int("gHasTender", 1);
 
         // Spawn two trains
         for (size_t i = 0; i < _numTrains; ++i) {
@@ -185,7 +186,7 @@ void KalimariDesert::BeginPlay() {
             // If using more trains, it wraps the value to always output a valid waypoint.
             uint32_t waypoint = CalculateWaypointDistribution(i, _numTrains, gVehiclePathSize, centerWaypoint);
 
-            if (CVarGetInteger("gMultiplayerNoFeatureCuts", 0) == false) {
+            if (online_cvar_int("gMultiplayerNoFeatureCuts", 0) == false) {
                 // Multiplayer modes have no tender and no carriages
                 if (gActiveScreenMode != SCREEN_MODE_1P) {
                     _tender = ATrain::TenderStatus::NO_TENDER;

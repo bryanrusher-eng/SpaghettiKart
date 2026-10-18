@@ -183,6 +183,9 @@ extern s32 D_80183DA0;
 
 //! Lakitu?
 extern s32 gIndexLakituList[];
+// Jugador al que sigue cada Lakitu de gIndexLakituList y cuantos hay (en carrera en red: uno por jugador humano).
+extern s32 gLakituPlayerList[];
+extern s32 gLakituListCount;
 
 #define DELETED_OBJECT_ID -1
 #define NULL_OBJECT_ID -1

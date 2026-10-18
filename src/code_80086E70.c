@@ -16,6 +16,7 @@
 #include "code_80057C60.h"
 #include "defines.h"
 #include "port/Game.h"
+#include "online_race.h"
 
 void func_80086E70(s32 objectIndex) {
     gObjectList[objectIndex].unk_0AE = 1; // * 0xE0)) = 1;
@@ -657,6 +658,10 @@ u32 get_horizontal_distance_to_camera(s32 objectIndex, Camera* camera) {
     s32 x;
     s32 y;
 
+    if (online_no_cull()) {
+        return 0; // carrera en red: todo el circuito se simula siempre, este donde este la camara de cada PC
+    }
+
     x = gObjectList[objectIndex].pos[0] - camera->pos[0];
     y = gObjectList[objectIndex].pos[2] - camera->pos[2];
     return (x * x) + (y * y);
@@ -767,6 +772,10 @@ bool is_within_horizontal_distance_to_camera(s32 objectIndex, Camera* camera, f3
     f32 x;
     f32 y;
     bool var_v1;
+
+    if (online_no_cull()) {
+        return true;
+    }
 
     var_v1 = false;
     x = gObjectList[objectIndex].pos[0] - camera->pos[0];
@@ -1257,6 +1266,10 @@ s32 func_8008A060(s32 objectIndex, Camera* camera, u16 arg2) {
     u16 temp_t3;
     s32 var_v1;
 
+    if (online_no_cull()) {
+        return 1; // no depende del angulo de la camara de esta PC
+    }
+
     var_v1 = 0;
     temp_t3 = (((u16) camera->rot[1] - gObjectList[objectIndex].direction_angle[1]) + (arg2 >> 1));
 
@@ -1273,6 +1286,10 @@ s32 func_8008A0B4(s32 objectIndex, Player* player, Camera* camera, u16 arg3) {
     f32 z_diff;
     s32 var_t0;
 
+    if (online_no_cull()) {
+        return 1; // no depende del angulo de la camara de esta PC
+    }
+
     var_t0 = 0;
     x_diff = gObjectList[objectIndex].pos[0] - player->pos[0];
     z_diff = gObjectList[objectIndex].pos[2] - player->pos[2];
@@ -1287,7 +1304,7 @@ bool is_object_visible_on_camera(s32 objectIndex, Camera* camera, u16 angle) {
     u16 temp_t2;
     s32 var_t0;
 
-    if (CVarGetInteger("gNoCulling", 0) == 1) {
+    if (CVarGetInteger("gNoCulling", 0) == 1 || online_no_cull()) {
         return true;
     }
 

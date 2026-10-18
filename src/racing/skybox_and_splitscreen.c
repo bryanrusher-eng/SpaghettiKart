@@ -26,6 +26,7 @@
 #include "math_util.h"
 #include "port/interpolation/FrameInterpolation.h"
 #include "engine/CoreMath.h"
+#include "online_race.h"
 
 Vp D_802B8880[] = {
     { { { 640, 480, 511, 0 }, { 640, 480, 511, 0 } } },
@@ -502,7 +503,8 @@ void func_802A4D18(void) {
 void func_802A4EF4(void) {
     switch (gActiveScreenMode) {
         case SCREEN_MODE_1P:
-            func_8001F394(gPlayerOne);
+            // En carrera online la camara de esta PC sigue a SU kart (slot propio), no al jugador 1.
+            func_8001F394(&gPlayers[online_view_slot()]);
             break;
 
         case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:

@@ -904,7 +904,7 @@ void init_hud_three_four_player(void) {
 
     init_object_list_index();
 
-    if (CVarGetInteger("gMultiplayerNoFeatureCuts", false) == true) {
+    if (online_cvar_int("gMultiplayerNoFeatureCuts", false) == true) {
         func_8007055C(gScreenOneCtx);
         func_8007055C(gScreenTwoCtx);
         func_8007055C(gScreenThreeCtx);

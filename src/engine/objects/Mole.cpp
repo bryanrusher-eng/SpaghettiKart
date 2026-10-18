@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include "Mole.h"
@@ -219,7 +220,8 @@ void OMole::func_80081D34(s32 objectIndex) {
                 } else {
                     player->triggers |= HIGH_TUMBLE_TRIGGER;
                 }
-                object->direction_angle[1] = camera->rot[1];
+                // Carrera en red: la camara de cada PC mira a un kart distinto; se usa la direccion del kart (igual en todas).
+                object->direction_angle[1] = online_race_setup_active() ? player->rotation[1] : camera->rot[1];
                 object->velocity[1] = (player->speed / 2) + 3.0;
                 object->unk_034 = player->speed + 1.0;
                 if (object->velocity[1] >= 5.0) {

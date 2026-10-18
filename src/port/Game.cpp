@@ -672,38 +672,45 @@ void CM_DrawTransparency(ScreenContext* screen, uint16_t pathCounter, uint16_t c
 /**
  * This should only be ran once per track, otherwise animation/timings might become sped up.
  */
+static void SpawnLakituFor(size_t i) {
+    // Retry does not respawn actors, therefore, re-use lakitu.
+    if (auto it = GetWorld()->Lakitus.find(i); it != GetWorld()->Lakitus.end()) {
+        if (it->second) {
+            it->second->Activate(OLakitu::STARTER);
+        }
+        return; // Already exists, skip spawning
+    }
+
+    auto lakitu = std::make_unique<OLakitu>(i, OLakitu::LakituType::STARTER);
+    GetWorld()->Lakitus[i] = lakitu.get();
+    GetWorld()->AddObject(std::move(lakitu));
+}
+
 void CM_SpawnStarterLakitu() {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
 
-    for (size_t i = 0; i < gPlayerCountSelection1; i++) {
-        // Retry does not respawn actors, therefore, re-use lakitu.
-        if (auto it = GetWorld()->Lakitus.find(i); it != GetWorld()->Lakitus.end()) {
-            if (it->second) {
-                it->second->Activate(OLakitu::STARTER);
+    if (online_race_setup_active()) {
+        // Carrera en red: un Lakitu por jugador humano, en orden de slot, igual en todas las PCs. Asi el rescate
+        // fuera de pista de cada jugador se simula en todas las PCs (el primero de la lista da el pistoletazo).
+        for (size_t slot = 0; slot < 16; slot++) {
+            if (online_slot_is_human((int) slot)) {
+                SpawnLakituFor(slot);
             }
-            continue; // Already exists, skip spawning
         }
+        return;
+    }
 
-        // El Lakitu de salida debe ser el del jugador 0 en TODAS las PCs: solo ese da el pistoletazo.
-        auto lakitu = std::make_unique<OLakitu>(i, OLakitu::LakituType::STARTER);
-        GetWorld()->Lakitus[i] = lakitu.get();
-        GetWorld()->AddObject(std::move(lakitu));
+    for (size_t i = 0; i < gPlayerCountSelection1; i++) {
+        SpawnLakituFor(i);
     }
 }
 
-// Lakitu de la pantalla de este jugador. En carrera online solo existe el del kart local (los demas humanos
-// no tienen pantalla en esta PC), y puede que no exista ninguno: devuelve nullptr en ese caso.
+// Lakitu de este jugador. En carrera online existe uno por cada jugador humano (solo se dibuja el del kart local);
+// devuelve nullptr si el jugador no tiene.
 static OLakitu* FindLakitu(s32 playerId) {
-    s32 key = playerId;
-    if (online_race_setup_active()) {
-        if (playerId != online_view_slot()) {
-            return nullptr;
-        }
-        key = 0;
-    }
-    auto it = GetWorld()->Lakitus.find(key);
+    auto it = GetWorld()->Lakitus.find(playerId);
     return (it != GetWorld()->Lakitus.end()) ? it->second : nullptr;
 }
 

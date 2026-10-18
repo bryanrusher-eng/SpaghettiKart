@@ -11,6 +11,7 @@
 #include "port/Game.h"
 #include <port/interpolation/FrameInterpolation.h>
 #include <port/interpolation/matrix.h>
+#include "online_race.h"
 s32 D_802B91C0[2] = { 13, 13 };
 Vec3f D_802B91C8 = { 0.0f, 0.0f, 0.0f };
 
@@ -1009,6 +1010,8 @@ UNUSED s16 func_802B7D28(f32 arg0) {
 
 u16 random_u16(void) {
     u16 temp1, temp2;
+
+    online_rng_trace();
 
     if (gRandomSeed16 == 22026) {
         gRandomSeed16 = 0;
