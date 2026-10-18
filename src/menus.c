@@ -165,6 +165,7 @@ const union GameModePack sSoundMenuPack = { { SOUND_STEREO, SOUND_HEADPHONES, SO
 void update_menus(void) {
     u16 controllerIdx;
 
+    online_menu_flow_tick();
     // El menu Online (Z en GAME SELECT) se queda con el mando mientras esta abierto.
     if (online_menu_active()) {
         online_menu_update();
@@ -1542,7 +1543,9 @@ void main_menu_act(struct Controller* controller, u16 controllerIdx) {
                 break;
             }
         }
-        gModeSelection = newMode;
+        if (!online_menu_flow_active()) {
+            gModeSelection = newMode;
+        }
     }
 }
 #else
@@ -1741,6 +1744,10 @@ void player_select_menu_act(struct Controller* controller, u16 controllerIdx) {
                     break;
                 }
                 if (btnAndStick & A_BUTTON) {
+                    if (online_menu_flow_active()) {
+                        online_menu_player_done(); // sala online: el flujo decide a donde seguir
+                        break;
+                    }
                     func_8009E1C0();
                     play_sound2(0x49008016);
                     func_8000F124();
@@ -1869,6 +1876,10 @@ void course_select_menu_act(struct Controller* controller, u16 controllerIdx) {
                     return;
                 }
                 if ((btnAndStick & A_BUTTON) != 0) {
+                    if (online_menu_flow_active()) {
+                        online_menu_course_done(); // sala online: inicia la carrera para todos
+                        return;
+                    }
                     func_8009E1C0();
                     func_800CA330(0x19);
                     play_sound2(SOUND_MENU_OK_CLICKED);

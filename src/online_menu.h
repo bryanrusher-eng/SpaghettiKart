@@ -13,6 +13,12 @@ void online_menu_open(void);
 void online_menu_update(void);
 void online_menu_render(void);
 
+// Flujo con los menus nativos del juego (SELECT PLAYER y eleccion de pista).
+int online_menu_flow_active(void);
+void online_menu_flow_tick(void);
+void online_menu_player_done(void);
+void online_menu_course_done(void);
+
 #ifdef __cplusplus
 }
 #endif

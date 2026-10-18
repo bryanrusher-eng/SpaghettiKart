@@ -11,6 +11,10 @@
 #include "main.h"
 #include "menu_items.h"
 #include "online_menu.h"
+#include "online_race.h"
+#include "menus.h"
+#include "code_800029B0.h"
+#include "port/Game.h"
 #include "port/ui/OnlineMenuBridge.h"
 
 // Menu Online nativo. Todo el texto va en MAYUSCULAS sin acentos porque la fuente del juego solo trae A-Z, 0-9
@@ -18,15 +22,14 @@
 
 enum { ST_MAIN, ST_NAME, ST_CODE, ST_LOBBY };
 
-enum { ROW_CREATE, ROW_JOIN, ROW_NAME, ROW_CHAR, ROW_PLAYERS, ROW_EXIT, ROW_COUNT };
-enum { LOBBY_CHAR, LOBBY_CUP, LOBBY_TRACK, LOBBY_CC, LOBBY_START, LOBBY_ROWS };
+enum { ROW_CREATE, ROW_JOIN, ROW_NAME, ROW_PLAYERS, ROW_EXIT, ROW_COUNT };
+enum { LOBBY_PICK, LOBBY_CC, LOBBY_ROWS };
 
 #define NAME_MAX 12
 #define CODE_LEN 5
 
 static const char kNameChars[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 static const char kCodeChars[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-static const char* kCupNames[] = { "COPA CHAMPINON", "COPA FLOR", "COPA ESTRELLA", "COPA ESPECIAL" };
 static const char* kCcNames[] = { "50CC", "100CC", "150CC" };
 static const char* kCharNames[] = { "MARIO", "LUIGI", "YOSHI", "TOAD", "DK", "WARIO", "PEACH", "BOWSER" };
 
@@ -38,10 +41,11 @@ static char sName[NAME_MAX + 1];
 static int sNamePos = 0;
 static int sCode[CODE_LEN];
 static int sCodePos = 0;
-static int sCup = 0;
-static int sTrack = 0;
 static int sCc = 1;
 static int sChar = 0;
+// Flujo nativo: 0 = ninguno, 1 = anfitrion (SELECT PLAYER y luego elegir pista), 2 = cliente (solo SELECT PLAYER).
+static int sFlow = 0;
+static int sFlowLeft = 0; // ya salimos del menu GAME SELECT (para saber cuando volvemos)
 static char sMsg[96];
 
 static int char_index(const char* set, char c) {
@@ -115,13 +119,6 @@ static void update_main(u16 b) {
         sCursor = (sCursor + ROW_COUNT - 1) % ROW_COUNT;
         sfx_move();
     }
-    if (sCursor == ROW_CHAR) {
-        if (b & (L_JPAD | R_JPAD)) {
-            sChar = (sChar + 8 + ((b & R_JPAD) ? 1 : -1)) % 8;
-            OnlineMenu_SetCharacter(sChar);
-            sfx_move();
-        }
-    }
     if (sCursor == ROW_PLAYERS) {
         if ((b & R_JPAD) && sMaxPlayers < 16) {
             sMaxPlayers++;
@@ -166,7 +163,6 @@ static void update_main(u16 b) {
                 }
                 break;
             case ROW_PLAYERS:
-            case ROW_CHAR:
                 break;
             case ROW_EXIT:
                 play_sound2(SOUND_MENU_GO_BACK);
@@ -269,6 +265,23 @@ static void update_code(u16 b) {
     }
 }
 
+static void launch_native(int host) {
+    // Entra al SELECT PLAYER del juego (y luego a la eleccion de pista si eres el anfitrion), como en el modo VS.
+    sFlow = host ? 1 : 2;
+    sFlowLeft = 0;
+    sOpen = 0;
+    gModeSelection = VERSUS;
+    gPlayerCount = 1;
+    gPlayerCountSelection1 = 1;
+    gScreenModeSelection = SCREEN_MODE_1P;
+    gCCSelection = sCc;
+    gPlaceItemBoxes = 1;
+    set_mirror_mode(0);
+    gMainMenuSelection = MAIN_MENU_OK_SELECT;
+    func_8009E1C0();
+    play_sound2(SOUND_MENU_OK_CLICKED);
+}
+
 static void update_lobby(u16 b, const OnlineMenuInfo* info) {
     if (info->connected) {
         int host = (info->role == 1);
@@ -284,31 +297,13 @@ static void update_lobby(u16 b, const OnlineMenuInfo* info) {
             sCursor = (sCursor + rows - 1) % rows;
             sfx_move();
         }
-        if (b & (L_JPAD | R_JPAD)) {
-            int d = (b & R_JPAD) ? 1 : -1;
-            switch (sCursor) {
-                case LOBBY_CHAR:
-                    sChar = (sChar + 8 + d) % 8;
-                    OnlineMenu_SetCharacter(sChar);
-                    sfx_move();
-                    break;
-                case LOBBY_CUP:
-                    sCup = (sCup + 4 + d) % 4;
-                    sfx_move();
-                    break;
-                case LOBBY_TRACK:
-                    sTrack = (sTrack + 4 + d) % 4;
-                    sfx_move();
-                    break;
-                case LOBBY_CC:
-                    sCc = (sCc + 3 + d) % 3;
-                    sfx_move();
-                    break;
-            }
+        if ((b & (L_JPAD | R_JPAD)) && host && sCursor == LOBBY_CC) {
+            sCc = (sCc + 3 + ((b & R_JPAD) ? 1 : -1)) % 3;
+            sfx_move();
         }
-        if (host && (b & A_BUTTON) && sCursor == LOBBY_START) {
-            play_sound2(SOUND_MENU_SELECT);
-            OnlineMenu_StartRace(sCup, sTrack, sCc);
+        if ((b & A_BUTTON) && sCursor == LOBBY_PICK) {
+            launch_native(host);
+            return;
         }
     }
     if (b & B_BUTTON) {
@@ -317,6 +312,61 @@ static void update_lobby(u16 b, const OnlineMenuInfo* info) {
         sState = ST_MAIN;
         sCursor = 0;
     }
+}
+
+// Se llama cada fotograma desde update_menus: al volver al GAME SELECT desde el flujo nativo reabre la sala.
+void online_menu_flow_tick(void) {
+    OnlineMenuInfo info;
+
+    if (sFlow == 0) {
+        return;
+    }
+    if (online_race_setup_active()) {
+        sFlow = 0;
+        sFlowLeft = 0;
+        return;
+    }
+    if (gMenuSelection != MAIN_MENU && gMenuSelection != MAIN_MENU_FROM_QUIT) {
+        sFlowLeft = 1;
+        return;
+    }
+    if (sFlowLeft && !is_screen_being_faded()) {
+        sFlow = 0;
+        sFlowLeft = 0;
+        OnlineMenu_GetInfo(&info);
+        if (info.role != 0) {
+            sOpen = 1;
+            sState = ST_LOBBY;
+            sCursor = 0;
+            sChar = OnlineMenu_GetCharacter();
+        }
+    }
+}
+
+int online_menu_flow_active(void) {
+    return sFlow != 0;
+}
+
+// El jugador confirmo su personaje en el SELECT PLAYER del juego.
+void online_menu_player_done(void) {
+    sChar = gCharacterSelections[0];
+    OnlineMenu_SetCharacter(sChar);
+    if (sFlow == 1) {
+        // anfitrion: sigue a la eleccion de pista
+        func_8009E1C0();
+        play_sound2(SOUND_MENU_OK_CLICKED);
+    } else {
+        // cliente: vuelve a la sala a esperar
+        func_8009E208();
+        play_sound2(SOUND_MENU_OK_CLICKED);
+    }
+}
+
+// El anfitrion confirmo la pista en el selector de copas del juego: se inicia la carrera online.
+void online_menu_course_done(void) {
+    OnlineMenu_StartRace((int) GetCupIndex(), (int) GetCupCursorPosition(), sCc);
+    sFlow = 0;
+    sFlowLeft = 0;
 }
 
 void online_menu_update(void) {
@@ -388,21 +438,18 @@ static void panel(void) {
 
 static void render_main(void) {
     char line[64];
-    int y = 50;
+    int y = 56;
 
     text_center(y, "CREAR SALA", sel_color(sCursor == ROW_CREATE), 0.8f);
-    y += 20;
+    y += 22;
     text_center(y, "UNIRSE A SALA", sel_color(sCursor == ROW_JOIN), 0.8f);
-    y += 20;
+    y += 22;
     snprintf(line, sizeof(line), "NOMBRE  %s", sName);
     text_center(y, line, sel_color(sCursor == ROW_NAME), 0.8f);
-    y += 20;
-    snprintf(line, sizeof(line), "PERSONAJE  - %s +", kCharNames[sChar]);
-    text_center(y, line, sel_color(sCursor == ROW_CHAR), 0.8f);
-    y += 20;
+    y += 22;
     snprintf(line, sizeof(line), "JUGADORES  - %d +", sMaxPlayers);
     text_center(y, line, sel_color(sCursor == ROW_PLAYERS), 0.8f);
-    y += 20;
+    y += 22;
     text_center(y, "SALIR", sel_color(sCursor == ROW_EXIT), 0.8f);
 
     if (!OnlineMenu_ServerConfigured()) {
@@ -489,26 +536,20 @@ static void render_lobby(const OnlineMenuInfo* info) {
     }
 
     if (info->connected) {
-        y = 150;
-        snprintf(line, sizeof(line), "PERSONAJE  - %s +", kCharNames[sChar]);
-        text_center(y, line, sel_color(sCursor == LOBBY_CHAR), 0.6f);
+        snprintf(line, sizeof(line), "TU PERSONAJE  %s", kCharNames[(sChar >= 0 && sChar < 8) ? sChar : 0]);
+        text_center(148, line, TEXT_GREEN, 0.55f);
     }
     if (host) {
-        y = 163;
-        snprintf(line, sizeof(line), "- %s +", kCupNames[sCup]);
-        text_center(y, line, sel_color(sCursor == LOBBY_CUP), 0.55f);
-        y += 11;
-        snprintf(line, sizeof(line), "PISTA - %d +", sTrack + 1);
-        text_center(y, line, sel_color(sCursor == LOBBY_TRACK), 0.55f);
-        y += 11;
+        y = 166;
+        text_center(y, "ELEGIR PERSONAJE Y PISTA", sel_color(sCursor == LOBBY_PICK), 0.7f);
+        y += 16;
         snprintf(line, sizeof(line), "- %s +", kCcNames[sCc]);
-        text_center(y, line, sel_color(sCursor == LOBBY_CC), 0.55f);
-        y += 12;
-        text_center(y, "INICIAR CARRERA", sel_color(sCursor == LOBBY_START), 0.7f);
-        text_center(212, "ARRIBA ABAJO ELEGIR   IZQ DER CAMBIAR   B SALIR", TEXT_BLUE, 0.4f);
+        text_center(y, line, sel_color(sCursor == LOBBY_CC), 0.6f);
+        text_center(212, "ARRIBA ABAJO ELEGIR   IZQ DER CILINDRADA   B SALIR", TEXT_BLUE, 0.4f);
     } else if (info->role == 2 && info->connected) {
-        text_center(176, "ESPERANDO AL ANFITRION...", TEXT_YELLOW, 0.65f);
-        text_center(212, "IZQ DER PERSONAJE   B SALIR DE LA SALA", TEXT_BLUE, 0.45f);
+        text_center(168, "ELEGIR PERSONAJE", sel_color(sCursor == LOBBY_PICK), 0.7f);
+        text_center(190, "ESPERANDO AL ANFITRION...", TEXT_YELLOW, 0.55f);
+        text_center(212, "A ELEGIR PERSONAJE   B SALIR DE LA SALA", TEXT_BLUE, 0.45f);
     } else {
         text_center(212, "B CANCELAR", TEXT_BLUE, 0.45f);
     }
