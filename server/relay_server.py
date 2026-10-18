@@ -84,13 +84,34 @@ class Relay(asyncio.DatagramProtocol):
         self.client_room = {}  # addr del cliente -> Room
         self.last_create = {}  # ip -> instante
         self.packets = 0
+        # Emulacion de red para pruebas de latencia (todo apagado por defecto)
+        self.sim_owd = 0.0       # ms de ida de cada tramo cliente<->rele
+        self.sim_host = 0.0      # ms de ida del tramo anfitrion<->rele
+        self.sim_jitter = 0.0    # ms de jitter maximo por tramo (uniforme)
+        self.sim_loss = 0.0      # % de paquetes perdidos por tramo
+        self.sim_extra = {}      # id de cliente -> ms extra de ida
+        self.leg = {}            # direccion -> ms de ida de su tramo
 
     # ---------- util ----------
     def connection_made(self, transport):
         self.transport = transport
 
-    def send(self, addr, data):
-        self.transport.sendto(data, addr)
+    def send(self, addr, data, src=None):
+        if not (self.sim_owd or self.sim_host or self.sim_jitter or self.sim_loss or self.sim_extra):
+            self.transport.sendto(data, addr)
+            return
+        # el paquete cruza el tramo de origen y el de destino (si lo origina el propio rele, cuenta ida y vuelta)
+        legs = [self.leg.get(addr, self.sim_owd)]
+        legs.append(self.leg.get(src, self.sim_owd) if src is not None else legs[0])
+        delay = 0.0
+        for ms in legs:
+            if self.sim_loss and random.random() * 100.0 < self.sim_loss:
+                return
+            delay += ms + (random.random() * self.sim_jitter if self.sim_jitter else 0.0)
+        if delay <= 0:
+            self.transport.sendto(data, addr)
+        else:
+            asyncio.get_running_loop().call_later(delay / 1000.0, self.transport.sendto, data, addr)
 
     def new_code(self):
         # solo para pruebas: la primera sala usa un codigo fijo si se indico --test-code
@@ -135,7 +156,7 @@ class Relay(asyncio.DatagramProtocol):
                 cid = room.by_addr.get(addr)
                 if cid is not None:
                     room.clients[cid][1] = now
-                    self.send(room.host, pack(R_DATA_FROM, struct.pack("<H", cid) + body))
+                    self.send(room.host, pack(R_DATA_FROM, struct.pack("<H", cid) + body), src=addr)
         elif ptype == R_DATA_TO:
             room = self.host_room.get(addr)
             if room and len(body) >= 2 and len(body) - 2 <= MAX_PAYLOAD:
@@ -143,7 +164,7 @@ class Relay(asyncio.DatagramProtocol):
                 (cid,) = struct.unpack_from("<H", body, 0)
                 c = room.clients.get(cid)
                 if c:
-                    self.send(c[0], pack(R_DATA_DOWN, body[2:]))
+                    self.send(c[0], pack(R_DATA_DOWN, body[2:]), src=addr)
         elif ptype == R_KEEPALIVE:
             room = self.host_room.get(addr)
             if room:
@@ -191,6 +212,7 @@ class Relay(asyncio.DatagramProtocol):
         room = Room(code, addr)
         self.rooms[code] = room
         self.host_room[addr] = room
+        self.leg[addr] = self.sim_host
         log.info("sala %s creada por %s:%d", code, addr[0], addr[1])
         self.send(addr, pack(R_CREATED, pstr(code)))
 
@@ -213,6 +235,7 @@ class Relay(asyncio.DatagramProtocol):
         room.next_id += 1
         room.clients[cid] = [addr, now]
         room.by_addr[addr] = cid
+        self.leg[addr] = self.sim_owd + self.sim_extra.get(cid, 0.0)
         self.client_room[addr] = room
         log.info("cliente %d entro a la sala %s (%s:%d)", cid, code, addr[0], addr[1])
         self.send(addr, pack(R_JOINED, bytes([1]) + pstr("ok")))
@@ -241,6 +264,11 @@ async def main():
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--test-code", default=None, help="codigo fijo para la primera sala (solo pruebas)")
+    ap.add_argument("--sim-owd", type=float, default=0.0, help="PRUEBAS: ms de ida de cada tramo cliente<->rele")
+    ap.add_argument("--sim-host", type=float, default=0.0, help="PRUEBAS: ms de ida del tramo anfitrion<->rele")
+    ap.add_argument("--sim-jitter", type=float, default=0.0, help="PRUEBAS: jitter maximo (ms) por tramo")
+    ap.add_argument("--sim-loss", type=float, default=0.0, help="PRUEBAS: porcentaje de paquetes perdidos por tramo")
+    ap.add_argument("--sim-extra", default="", help="PRUEBAS: ms extra por cliente, ej. 1=40,3=90")
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -248,6 +276,16 @@ async def main():
     loop = asyncio.get_running_loop()
     relay = Relay()
     relay.test_code = args.test_code.upper() if args.test_code else None
+    relay.sim_owd = args.sim_owd
+    relay.sim_host = args.sim_host
+    relay.sim_jitter = args.sim_jitter
+    relay.sim_loss = args.sim_loss
+    for item in [x for x in args.sim_extra.split(",") if "=" in x]:
+        k, v = item.split("=", 1)
+        relay.sim_extra[int(k)] = float(v)
+    if relay.sim_owd or relay.sim_host or relay.sim_jitter or relay.sim_loss or relay.sim_extra:
+        log.warning("EMULACION DE RED ACTIVA (solo pruebas): owd=%sms host=%sms jitter=%sms perdida=%s%%",
+                    relay.sim_owd, relay.sim_host, relay.sim_jitter, relay.sim_loss)
     await loop.create_datagram_endpoint(lambda: relay, local_addr=(args.host, args.port))
     log.info("rele escuchando en UDP %s:%d", args.host, args.port)
     while True:

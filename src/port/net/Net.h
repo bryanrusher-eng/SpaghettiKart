@@ -96,6 +96,12 @@ bool PollRaceStart(RaceParams& out);
 void RaceBegin();
 void RaceEnd();
 bool RaceActive();
+// ---- Diagnostico (opcional: variable de entorno SK_NET_STATS=carpeta) ----
+// Cada 5 s de carrera escribe una linea en <carpeta>/net_<rol>_slot<N>.csv con RTT, jitter, perdida, esperas, etc.
+uint64_t NowUs();
+// El juego la llama al aplicar cada tick de la carrera: 'waitUs' = tiempo que estuvo esperando los mandos de los demas.
+void StatsApplied(uint32_t tick, uint32_t waitUs);
+
 bool RaceBusy(); // carrera cargandose o en marcha
 bool RacePending(); // hay un aviso de carrera por atender (aun no consumido por el juego)
 // Fin de carrera acordado por todos: el anfitrion sigue sirviendo mandos unos segundos por si alguien va atrasado.

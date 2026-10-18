@@ -278,6 +278,7 @@ void online_apply_pads(void) {
     int delay = NetBridge_RaceDelay();
     int spins = 0;
     int i;
+    unsigned long long waitStartUs;
 
     sLHeld = (gControllerPads[0].button & 0x0020) != 0; // CONT_L
     // Mando local (puerto 1) para dentro de 'delay' ticks.
@@ -285,6 +286,7 @@ void online_apply_pads(void) {
                      gControllerPads[0].stick_y);
 
     // Esperar a tener los mandos de todos los humanos para este tick.
+    waitStartUs = NetBridge_NowUs();
     while (!NetBridge_GetFrame(sTick, buttons, (signed char*) stickX, (signed char*) stickY)) {
         NetBridge_Pump();
         if (!NetBridge_RaceActive()) {
@@ -304,6 +306,8 @@ void online_apply_pads(void) {
             return;
         }
     }
+
+    NetBridge_StatsApplied(sTick, (unsigned int) (NetBridge_NowUs() - waitStartUs));
 
     for (i = 0; i < 16; i++) {
         gControllerPads[i].button = buttons[i];

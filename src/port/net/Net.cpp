@@ -36,6 +36,7 @@ static const int kConnReset = ECONNRESET;
 #include <chrono>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 #include <map>
 
 namespace Net {
@@ -219,6 +220,118 @@ uint64_t NowMs() {
     return static_cast<uint64_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+uint64_t MonoUs() {
+    using namespace std::chrono;
+    return static_cast<uint64_t>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
+}
+
+// ---------- diagnostico de red ----------
+struct Acc {
+    double n = 0, sum = 0, sum2 = 0, mn = 1e18, mx = 0;
+    void add(double x) {
+        n += 1;
+        sum += x;
+        sum2 += x * x;
+        if (x < mn) mn = x;
+        if (x > mx) mx = x;
+    }
+    double avg() const { return n > 0 ? sum / n : 0; }
+    double lo() const { return n > 0 ? mn : 0; }
+    double sd() const {
+        if (n < 2) return 0;
+        double v = sum2 / n - (sum / n) * (sum / n);
+        return v > 0 ? std::sqrt(v) : 0;
+    }
+};
+struct NetStats {
+    uint64_t txBytes = 0, rxBytes = 0, txPk = 0, rxPk = 0;
+    Acc inputRtt;  // us: desde que se manda el mando del tick T hasta que llega el fotograma T que lo contiene
+    Acc applyLat;  // us: desde que se manda el mando del tick T hasta que la simulacion lo aplica
+    Acc wait;      // us: tiempo bloqueado esperando los mandos de los demas en cada tick
+    Acc frameDt;   // us: intervalo entre ticks aplicados consecutivos
+    Acc tickProc;  // us: duracion de cada llamada a Net::Tick()
+    Acc hostWait;  // us (anfitrion): tiempo en completar cada tick desde que se completo el anterior
+    uint32_t ticks = 0, dupFrames = 0, gapFrames = 0, resendsHost = 0, resendsClient = 0, dupInputs = 0;
+    uint32_t slowest[kMaxPlayers] = { 0 };
+};
+NetStats g_st;
+uint64_t g_submitUs[kRing];
+uint64_t g_hostTickStartUs = 0;
+uint64_t g_lastApplyUs = 0;
+int g_lastArrive = -1;
+uint64_t g_statsWindowMs = 0;
+uint64_t g_statsCpuPrev = 0;
+FILE* g_statsFile = nullptr;
+
+uint64_t ProcessCpu100ns() {
+#ifdef _WIN32
+    FILETIME c, e, k, u;
+    if (!GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u)) return 0;
+    ULARGE_INTEGER a, b;
+    a.LowPart = k.dwLowDateTime;
+    a.HighPart = k.dwHighDateTime;
+    b.LowPart = u.dwLowDateTime;
+    b.HighPart = u.dwHighDateTime;
+    return a.QuadPart + b.QuadPart;
+#else
+    return 0;
+#endif
+}
+
+void StatsMaybeWrite(uint64_t nowMs) {
+    static const char* dir = std::getenv("SK_NET_STATS");
+    if (dir == nullptr || !g_race.active) return;
+    if (g_statsWindowMs == 0) {
+        g_statsWindowMs = nowMs;
+        g_statsCpuPrev = ProcessCpu100ns();
+        return;
+    }
+    if (nowMs - g_statsWindowMs < 5000) return;
+    double secs = static_cast<double>(nowMs - g_statsWindowMs) / 1000.0;
+    int slot = (g_role == Role::Host) ? 0 : g_mySlot;
+    if (g_statsFile == nullptr) {
+        std::string path = std::string(dir) + "/net_" + (g_role == Role::Host ? "host" : "cliente") + "_slot" +
+                           std::to_string(slot) + ".csv";
+        g_statsFile = std::fopen(path.c_str(), "w");
+        if (g_statsFile == nullptr) return;
+        std::fprintf(g_statsFile,
+                     "t_s,rol,slot,humanos,ticks,ticks_por_s,tx_KBs,rx_KBs,tx_pps,rx_pps,cpu_pct,aplica_ms_prom,"
+                     "aplica_ms_max,rtt_ms_prom,rtt_ms_min,rtt_ms_max,rtt_ms_jitter,espera_ms_prom,espera_ms_max,"
+                     "dt_ms_prom,dt_ms_max,dt_ms_jitter,tick_net_us_prom,tick_net_us_max,fotogramas_dup,huecos,"
+                     "reenvios_host,reenvios_cliente,mandos_dup,host_completa_ms_prom,host_completa_ms_max,"
+                     "mas_lento_slot,mas_lento_veces\n");
+    }
+    uint64_t cpu = ProcessCpu100ns();
+    double cpuPct = (static_cast<double>(cpu - g_statsCpuPrev) / 1e7) / secs * 100.0;
+    g_statsCpuPrev = cpu;
+    int top = -1;
+    uint32_t topN = 0;
+    for (int s = 0; s < kMaxPlayers; s++) {
+        if (g_st.slowest[s] > topN) {
+            topN = g_st.slowest[s];
+            top = s;
+        }
+    }
+    int humans = 0;
+    for (int s = 0; s < kMaxPlayers; s++) {
+        if (g_race.humanMask & (1u << s)) humans++;
+    }
+    std::fprintf(g_statsFile,
+                 "%.0f,%s,%d,%d,%u,%.1f,%.1f,%.1f,%.0f,%.0f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,%.1f,%.2f,%.2f,"
+                 "%.2f,%.1f,%.0f,%u,%u,%u,%u,%u,%.2f,%.1f,%d,%u\n",
+                 static_cast<double>(nowMs % 100000000ull) / 1000.0, g_role == Role::Host ? "host" : "cliente", slot,
+                 humans, g_st.ticks, g_st.ticks / secs, g_st.txBytes / secs / 1024.0, g_st.rxBytes / secs / 1024.0,
+                 g_st.txPk / secs, g_st.rxPk / secs, cpuPct, g_st.applyLat.avg() / 1000.0, g_st.applyLat.mx / 1000.0,
+                 g_st.inputRtt.avg() / 1000.0, g_st.inputRtt.lo() / 1000.0, g_st.inputRtt.mx / 1000.0,
+                 g_st.inputRtt.sd() / 1000.0, g_st.wait.avg() / 1000.0, g_st.wait.mx / 1000.0,
+                 g_st.frameDt.avg() / 1000.0, g_st.frameDt.mx / 1000.0, g_st.frameDt.sd() / 1000.0,
+                 g_st.tickProc.avg(), g_st.tickProc.mx, g_st.dupFrames, g_st.gapFrames, g_st.resendsHost,
+                 g_st.resendsClient, g_st.dupInputs, g_st.hostWait.avg() / 1000.0, g_st.hostWait.mx / 1000.0, top, topN);
+    std::fflush(g_statsFile);
+    g_st = NetStats();
+    g_statsWindowMs = nowMs;
+}
+
 void Log(const std::string& line) {
     g_log.push_back(line);
     if (g_log.size() > kMaxLogLines) {
@@ -303,6 +416,8 @@ void SendRaw(const sockaddr_in& to, const std::vector<uint8_t>& b) {
         return e ? std::atoi(e) : 0;
     }();
     if (lossPct > 0 && (std::rand() % 100) < lossPct) return;
+    g_st.txBytes += b.size() + 28; // + cabeceras IP/UDP
+    g_st.txPk++;
     sendto(g_sock, reinterpret_cast<const char*>(b.data()), static_cast<int>(b.size()), 0,
            reinterpret_cast<const sockaddr*>(&to), sizeof(to));
 }
@@ -547,6 +662,13 @@ void HostTryComplete() {
             }
         }
         if (!ok) break;
+        {
+            uint64_t nu = MonoUs();
+            if (g_hostTickStartUs != 0) g_st.hostWait.add(static_cast<double>(nu - g_hostTickStartUs));
+            g_hostTickStartUs = nu;
+            if (g_lastArrive >= 0 && g_lastArrive < kMaxPlayers) g_st.slowest[g_lastArrive]++;
+            g_lastArrive = -1;
+        }
         StoreFrame(t, pads);
         HostBroadcastFrame(t);
         g_race.hostNext++;
@@ -664,7 +786,11 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
                 if (!r.ok) break;
                 uint32_t t = firstTick + k;
                 int i = t % kRing;
-                if (t < g_race.hostNext) continue; // ya completado
+                if (t < g_race.hostNext) {
+                    g_st.dupInputs++;
+                    continue; // ya completado
+                }
+                if (t == g_race.hostNext) g_lastArrive = p.slot;
                 g_race.inputs[i][p.slot] = pad;
                 g_race.inputTick[i][p.slot] = t;
             }
@@ -782,6 +908,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             int count = r.u8();
             int humans = HumanCount();
             if (!r.ok) break;
+            if (first > g_race.ackNext) g_st.gapFrames++; // llegaron fotogramas posteriores sin los anteriores (perdida/reordenado)
             for (int k = 0; k < count && r.ok; k++) {
                 Pad pads[kMaxPlayers];
                 for (int s = 0; s < kMaxPlayers; s++) {
@@ -790,7 +917,17 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
                 if (!r.ok) break;
                 (void) humans;
                 uint32_t t = first + k;
-                if (t >= g_race.ackNext) StoreFrame(t, pads);
+                if (t >= g_race.ackNext) {
+                    if (FrameKnown(t)) {
+                        g_st.dupFrames++;
+                    } else {
+                        int j = t % kRing;
+                        if (g_race.sentTick[j] == t && g_submitUs[j] != 0) {
+                            g_st.inputRtt.add(static_cast<double>(MonoUs() - g_submitUs[j]));
+                        }
+                    }
+                    StoreFrame(t, pads);
+                }
             }
             while (FrameKnown(g_race.ackNext)) g_race.ackNext++;
             break;
@@ -1118,7 +1255,7 @@ static void AutoRaceFromEnv(uint64_t now) {
     HostStartRace(p);
 }
 
-void Tick() {
+static void TickImpl() {
     AutoStartFromEnv(NowMs());
     AutoRaceFromEnv(NowMs());
     if (g_sock == kInvalidSock) return;
@@ -1137,6 +1274,8 @@ void Tick() {
             break; // WOULDBLOCK u otro: no hay mas datos
         }
         if (got < 5) continue;
+        g_st.rxBytes += static_cast<uint64_t>(got) + 28;
+        g_st.rxPk++;
         if (g_viaRelay) {
             if (from.sin_addr.s_addr != g_relay.sin_addr.s_addr || from.sin_port != g_relay.sin_port) continue;
             Reader rr(buf, static_cast<size_t>(got));
@@ -1172,12 +1311,14 @@ void Tick() {
     if (g_race.active) {
         if (g_role == Role::Client && g_cstate == ClientState::Connected && g_race.anySubmitted &&
             now - g_race.lastInputSend >= 100) {
+            g_st.resendsClient++;
             SendClientInput(g_race.lastSubmitted);
         }
         if (g_role == Role::Host && now - g_race.lastFrameResend >= 100) {
             g_race.lastFrameResend = now;
             for (auto& kv : g_peers) {
                 if (g_race.hostNext > 0 && g_race.peerAck[kv.second.slot] < g_race.hostNext) {
+                    g_st.resendsHost++;
                     SendFrames(kv.second, g_race.hostNext - 1);
                 }
             }
@@ -1294,6 +1435,25 @@ void Tick() {
     }
 }
 
+void Tick() {
+    uint64_t t0 = MonoUs();
+    TickImpl();
+    if (g_race.active) g_st.tickProc.add(static_cast<double>(MonoUs() - t0));
+    StatsMaybeWrite(NowMs());
+}
+
+uint64_t NowUs() { return MonoUs(); }
+
+void StatsApplied(uint32_t tick, uint32_t waitUs) {
+    uint64_t nu = MonoUs();
+    g_st.ticks++;
+    g_st.wait.add(waitUs);
+    if (g_lastApplyUs != 0) g_st.frameDt.add(static_cast<double>(nu - g_lastApplyUs));
+    g_lastApplyUs = nu;
+    int j = tick % kRing;
+    if (g_race.sentTick[j] == tick && g_submitUs[j] != 0) g_st.applyLat.add(static_cast<double>(nu - g_submitUs[j]));
+}
+
 Role GetRole() { return g_role; }
 
 bool IsConnected() {
@@ -1379,6 +1539,12 @@ void RaceBegin() {
     g_race.starting = starting;
     g_race.received = received;
     std::memcpy(g_race.started, started, sizeof(started));
+    g_st = NetStats();
+    g_statsWindowMs = 0;
+    g_hostTickStartUs = MonoUs();
+    g_lastApplyUs = 0;
+    g_lastArrive = -1;
+    for (int q = 0; q < kRing; q++) g_submitUs[q] = 0;
     g_leftEvents.clear();
     g_pendingLeft.clear();
     g_droppedMask = 0;
@@ -1478,6 +1644,7 @@ void RaceSubmitLocal(uint32_t tick, const Pad& pad) {
     int i = tick % kRing;
     g_race.sent[i] = pad;
     g_race.sentTick[i] = tick;
+    g_submitUs[i] = MonoUs();
     g_race.lastSubmitted = tick;
     g_race.anySubmitted = true;
     if (g_role == Role::Host) {

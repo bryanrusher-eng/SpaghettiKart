@@ -53,6 +53,10 @@ int NetBridge_LocalSlot(void) { return Net::GetLocalSlot(); }
 
 unsigned NetBridge_DroppedMask(void) { return Net::RaceDroppedMask(); }
 
+unsigned long long NetBridge_NowUs(void) { return Net::NowUs(); }
+
+void NetBridge_StatsApplied(unsigned int tick, unsigned int waitUs) { Net::StatsApplied(tick, waitUs); }
+
 int NetBridge_Wins(int slot) { return Net::RaceWins(slot); }
 
 void NetBridge_RaceWinner(int slot) { Net::RaceAddWin(slot); }
