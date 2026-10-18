@@ -41,7 +41,7 @@ namespace Net {
 namespace {
 
 constexpr uint32_t kMagic = 0x314E4B4D; // "MKN1"
-constexpr uint16_t kProtocolVersion = 1;
+constexpr uint16_t kProtocolVersion = 2;
 
 enum PacketType : uint8_t {
     PKT_HELLO = 1,   // cliente -> host: version, nombre
@@ -51,6 +51,11 @@ enum PacketType : uint8_t {
     PKT_PONG = 5,    // respuesta al ping, repite la marca
     PKT_ROSTER = 6,  // host -> clientes: lista de jugadores
     PKT_BYE = 7,     // despedida
+    PKT_RACE_START = 8,   // host -> clientes: parametros de la carrera
+    PKT_RACE_STARTED = 9, // cliente -> host: recibi el inicio
+    PKT_INPUT = 10,       // cliente -> host: mandos de los proximos ticks + confirmacion
+    PKT_FRAME = 11,       // host -> clientes: mandos de todos para uno o varios ticks
+    PKT_CHARACTER = 12,   // cliente -> host: cambio de personaje
 };
 
 // Protocolo del servidor de rele (ver server/relay_server.py)
@@ -112,6 +117,7 @@ struct Peer {
     uint64_t lastRecv = 0;
     uint64_t lastPingSent = 0;
     uint32_t ping = 0;
+    int character = 0;
 };
 
 enum class ClientState { Idle, Connecting, Connected };
@@ -123,6 +129,7 @@ bool g_wsaReady = false;
 std::string g_status = "Desconectado";
 std::vector<std::string> g_log;
 std::string g_myName;
+int g_myCharacter = 0; // personaje del jugador local
 int g_maxPlayers = kMaxPlayers; // sala: maximo de jugadores (host lo elige; cliente lo recibe)
 
 // Host
@@ -151,6 +158,36 @@ uint64_t g_lastPingSent = 0;
 uint32_t g_myPing = 0;
 int g_mySlot = -1;
 std::vector<PeerInfo> g_roster;
+
+// ---------- carrera en red ----------
+constexpr int kRing = 256;
+struct RaceState {
+    bool active = false;
+    bool pending = false;
+    bool starting = false; // host: reenviando RACE_START hasta que todos confirmen
+    bool received = false; // cliente: ya recibio el inicio (ignora duplicados)
+    RaceParams params;
+    uint16_t humanMask = 0;
+    int delay = 4;
+    Pad frame[kRing][kMaxPlayers];
+    uint32_t frameTick[kRing];
+    bool frameReady[kRing];
+    // host: mandos recibidos todavia sin completar
+    Pad inputs[kRing][kMaxPlayers];
+    uint32_t inputTick[kRing][kMaxPlayers];
+    uint32_t hostNext = 0;                 // siguiente tick que el host debe completar
+    uint32_t peerAck[kMaxPlayers] = { 0 }; // por slot: siguiente tick que ese cliente necesita
+    bool started[kMaxPlayers] = { false }; // el cliente confirmo el inicio
+    uint64_t lastStartSend = 0;
+    // cliente
+    uint32_t ackNext = 0;
+    Pad sent[kRing];
+    uint32_t sentTick[kRing];
+    uint32_t lastSubmitted = 0;
+    bool anySubmitted = false;
+    uint64_t lastInputSend = 0;
+    uint64_t lastFrameResend = 0;
+} g_race;
 
 uint64_t NowMs() {
     using namespace std::chrono;
@@ -235,6 +272,12 @@ bool OpenSocket(uint16_t bindPort, std::string& err) {
 
 void SendRaw(const sockaddr_in& to, const std::vector<uint8_t>& b) {
     if (g_sock == kInvalidSock) return;
+    // Solo para pruebas: SK_NET_LOSS=20 descarta ~20 % de los paquetes enviados.
+    static int lossPct = []() {
+        const char* e = std::getenv("SK_NET_LOSS");
+        return e ? std::atoi(e) : 0;
+    }();
+    if (lossPct > 0 && (std::rand() % 100) < lossPct) return;
     sendto(g_sock, reinterpret_cast<const char*>(b.data()), static_cast<int>(b.size()), 0,
            reinterpret_cast<const sockaddr*>(&to), sizeof(to));
 }
@@ -297,6 +340,7 @@ void SendHello() {
     Writer w = Begin(PKT_HELLO);
     w.u16(kProtocolVersion);
     w.str(g_myName);
+    w.u8(static_cast<uint8_t>(g_myCharacter));
     SendTo(g_server, w);
     g_lastHello = NowMs();
 }
@@ -315,11 +359,11 @@ int FreeSlot() {
 
 std::vector<PeerInfo> HostRoster() {
     std::vector<PeerInfo> r;
-    r.push_back({ 0, g_myName, 0, std::string(), true });
+    r.push_back({ 0, g_myName, 0, std::string(), true, g_myCharacter });
     std::vector<const Peer*> ps;
     for (auto& kv : g_peers) ps.push_back(&kv.second);
     std::sort(ps.begin(), ps.end(), [](const Peer* a, const Peer* b) { return a->slot < b->slot; });
-    for (const Peer* p : ps) r.push_back({ p->slot, p->name, p->ping, std::string(), false });
+    for (const Peer* p : ps) r.push_back({ p->slot, p->name, p->ping, std::string(), false, p->character });
     return r;
 }
 
@@ -332,6 +376,7 @@ void BroadcastRoster() {
         w.u8(static_cast<uint8_t>(p.slot));
         w.str(p.name);
         w.u16(static_cast<uint16_t>(std::min<uint32_t>(p.pingMs, 65535)));
+        w.u8(static_cast<uint8_t>(p.character));
     }
     for (auto& kv : g_peers) SendTo(kv.second.addr, w);
     g_lastRoster = NowMs();
@@ -349,6 +394,121 @@ void ResetState() {
     g_viaRelay = false;
     g_rphase = RelayPhase::None;
     g_roomCode.clear();
+    g_race = RaceState();
+}
+
+void WritePad(Writer& w, const Pad& p) {
+    w.u16(p.buttons);
+    w.u8(static_cast<uint8_t>(p.stickX));
+    w.u8(static_cast<uint8_t>(p.stickY));
+}
+
+void WriteStart(Writer& w, const RaceParams& p) {
+    w.u8(p.cup);
+    w.u8(p.track);
+    w.u8(p.cc);
+    w.u16(p.seed);
+    w.u8(p.delay);
+    w.u8(static_cast<uint8_t>(p.humans.size()));
+    for (const RaceHuman& h : p.humans) {
+        w.u8(static_cast<uint8_t>(h.slot));
+        w.u8(static_cast<uint8_t>(h.character));
+    }
+}
+
+Pad ReadPad(Reader& r) {
+    Pad p;
+    p.buttons = r.u16();
+    p.stickX = static_cast<int8_t>(r.u8());
+    p.stickY = static_cast<int8_t>(r.u8());
+    return p;
+}
+
+int HumanCount() {
+    int n = 0;
+    for (int i = 0; i < kMaxPlayers; i++) {
+        if (g_race.humanMask & (1u << i)) n++;
+    }
+    return n;
+}
+
+void StoreFrame(uint32_t tick, const Pad* pads) {
+    int i = tick % kRing;
+    for (int s = 0; s < kMaxPlayers; s++) g_race.frame[i][s] = pads[s];
+    g_race.frameTick[i] = tick;
+    g_race.frameReady[i] = true;
+}
+
+bool FrameKnown(uint32_t tick) {
+    int i = tick % kRing;
+    return g_race.frameReady[i] && g_race.frameTick[i] == tick;
+}
+
+// Host: manda a un cliente los ticks que le faltan (hasta 8) terminando en 'last'.
+void SendFrames(const Peer& p, uint32_t last) {
+    // Siempre desde el tick mas antiguo que le falta al cliente (hasta 8 por paquete).
+    uint32_t first = g_race.peerAck[p.slot];
+    if (first > last) return;
+    if (last > first + 7) last = first + 7;
+    Writer w = Begin(PKT_FRAME);
+    w.u32(first);
+    w.u8(static_cast<uint8_t>(last - first + 1));
+    for (uint32_t t = first; t <= last; t++) {
+        int i = t % kRing;
+        for (int s = 0; s < kMaxPlayers; s++) {
+            if (g_race.humanMask & (1u << s)) WritePad(w, g_race.frame[i][s]);
+        }
+    }
+    SendTo(p.addr, w);
+}
+
+void HostBroadcastFrame(uint32_t tick) {
+    for (auto& kv : g_peers) SendFrames(kv.second, tick);
+}
+
+// Host: completa todos los ticks para los que ya estan los mandos de cada humano.
+void HostTryComplete() {
+    if (!g_race.active) return;
+    for (int guard = 0; guard < kRing / 2; guard++) {
+        uint32_t t = g_race.hostNext;
+        int i = t % kRing;
+        Pad pads[kMaxPlayers];
+        bool ok = true;
+        for (int s = 0; s < kMaxPlayers && ok; s++) {
+            if (!(g_race.humanMask & (1u << s))) continue;
+            bool connected = (s == 0);
+            for (auto& kv : g_peers) {
+                if (kv.second.slot == s) connected = true;
+            }
+            if (!connected) continue; // jugador que se fue: mando neutro
+            if (g_race.inputTick[i][s] == t) {
+                pads[s] = g_race.inputs[i][s];
+            } else {
+                ok = false;
+            }
+        }
+        if (!ok) break;
+        StoreFrame(t, pads);
+        HostBroadcastFrame(t);
+        g_race.hostNext++;
+    }
+}
+
+// Cliente: manda al anfitrion el mando hasta el tick 'tick' (con los 5 anteriores por si se pierde algun paquete).
+void SendClientInput(uint32_t tick) {
+    uint32_t first = tick >= 5 ? tick - 5 : 0;
+    if (first < static_cast<uint32_t>(g_race.delay)) first = static_cast<uint32_t>(g_race.delay);
+    if (first > tick) first = tick;
+    Writer w = Begin(PKT_INPUT);
+    w.u32(g_race.ackNext);
+    w.u32(first);
+    w.u8(static_cast<uint8_t>(tick - first + 1));
+    for (uint32_t t = first; t <= tick; t++) {
+        int j = t % kRing;
+        WritePad(w, g_race.sentTick[j] == t ? g_race.sent[j] : Pad());
+    }
+    SendTo(g_server, w);
+    g_race.lastInputSend = NowMs();
 }
 
 void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t now) {
@@ -358,6 +518,7 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
     if (type == PKT_HELLO) {
         uint16_t ver = r.u16();
         std::string name = r.str();
+        int character = r.u8();
         if (!r.ok) return;
         if (ver != kProtocolVersion) {
             Writer w = Begin(PKT_REJECT);
@@ -384,6 +545,7 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
         p.addr = from;
         p.slot = slot;
         p.name = name;
+        p.character = (character >= 0 && character < 8) ? character : slot % 8;
         p.lastRecv = now;
         g_peers[key] = p;
         Writer w = Begin(PKT_WELCOME);
@@ -414,6 +576,40 @@ void HandleHostPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64_t
             g_peers.erase(it);
             g_rosterDirty = true;
             break;
+        case PKT_CHARACTER: {
+            int c = r.u8();
+            if (r.ok && c >= 0 && c < 8 && !g_race.active) {
+                p.character = c;
+                g_rosterDirty = true;
+            }
+            break;
+        }
+        case PKT_RACE_STARTED:
+            if (g_race.starting) g_race.started[p.slot] = true;
+            break;
+        case PKT_INPUT: {
+            if (!g_race.active) {
+                g_race.started[p.slot] = true;
+                break;
+            }
+            uint32_t ack = r.u32();
+            uint32_t firstTick = r.u32();
+            int count = r.u8();
+            if (!r.ok) break;
+            g_race.started[p.slot] = true;
+            if (ack > g_race.peerAck[p.slot]) g_race.peerAck[p.slot] = ack;
+            for (int k = 0; k < count; k++) {
+                Pad pad = ReadPad(r);
+                if (!r.ok) break;
+                uint32_t t = firstTick + k;
+                int i = t % kRing;
+                if (t < g_race.hostNext) continue; // ya completado
+                g_race.inputs[i][p.slot] = pad;
+                g_race.inputTick[i][p.slot] = t;
+            }
+            HostTryComplete();
+            break;
+        }
         default:
             break;
     }
@@ -461,6 +657,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
                 pi.slot = r.u8();
                 pi.name = r.str();
                 pi.pingMs = r.u16();
+                pi.character = r.u8();
                 pi.isSelf = (pi.slot == g_mySlot);
                 if (pi.isSelf) pi.pingMs = g_myPing;
                 list.push_back(pi);
@@ -474,6 +671,51 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
             g_sock = kInvalidSock;
             ResetState();
             break;
+        case PKT_RACE_START: {
+            if (g_cstate != ClientState::Connected) break;
+            RaceParams rp;
+            rp.cup = r.u8();
+            rp.track = r.u8();
+            rp.cc = r.u8();
+            rp.seed = r.u16();
+            rp.delay = r.u8();
+            int n = r.u8();
+            for (int k = 0; k < n && r.ok; k++) {
+                RaceHuman h;
+                h.slot = r.u8();
+                h.character = r.u8();
+                rp.humans.push_back(h);
+            }
+            if (!r.ok) break;
+            if (!g_race.received) {
+                g_race.received = true;
+                g_race.params = rp;
+                g_race.pending = true;
+                Log("El anfitrion inicio la carrera");
+            }
+            Writer w = Begin(PKT_RACE_STARTED);
+            SendTo(g_server, w);
+            break;
+        }
+        case PKT_FRAME: {
+            if (!g_race.active || g_cstate != ClientState::Connected) break;
+            uint32_t first = r.u32();
+            int count = r.u8();
+            int humans = HumanCount();
+            if (!r.ok) break;
+            for (int k = 0; k < count && r.ok; k++) {
+                Pad pads[kMaxPlayers];
+                for (int s = 0; s < kMaxPlayers; s++) {
+                    if (g_race.humanMask & (1u << s)) pads[s] = ReadPad(r);
+                }
+                if (!r.ok) break;
+                (void) humans;
+                uint32_t t = first + k;
+                if (t >= g_race.ackNext) StoreFrame(t, pads);
+            }
+            while (FrameKnown(g_race.ackNext)) g_race.ackNext++;
+            break;
+        }
         default:
             break;
     }
@@ -749,8 +991,57 @@ static void AutoStartFromEnv(uint64_t now) {
     }
 }
 
+// Retraso de mandos (en ticks de 1/30 s) adecuado para el ping actual de los jugadores. Cada mando tiene que
+// llegar al anfitrion y volver (por el rele), asi que hace falta cubrir el ping completo mas un colchon; con
+// menos retraso la carrera se frena esperando datos.
+int SuggestDelay() {
+    uint32_t maxPing = 0;
+    for (auto& kv : g_peers) maxPing = std::max(maxPing, kv.second.ping);
+    int d = static_cast<int>((maxPing + 40) / 33) + 1;
+    return std::max(4, std::min(12, d));
+}
+
+// Pruebas: SK_ONLINE_RACE_PLAYERS=N hace que el anfitrion inicie la carrera solo cuando haya N jugadores.
+// Opcionales: SK_ONLINE_RACE_CUP, SK_ONLINE_RACE_TRACK, SK_ONLINE_RACE_CC, SK_ONLINE_DELAY.
+static void AutoRaceFromEnv(uint64_t now) {
+    static uint64_t reachedAt = 0;
+    const char* n = std::getenv("SK_ONLINE_RACE_PLAYERS");
+    if (n == nullptr || g_role != Role::Host || g_race.starting || g_race.active) return;
+    int want = std::atoi(n);
+    if (want < 2 || static_cast<int>(g_peers.size()) + 1 < want) {
+        reachedAt = 0;
+        return;
+    }
+    if (reachedAt == 0) reachedAt = now;
+    if (now - reachedAt < 2500) return; // dejar que se estabilice la sala
+    RaceParams p;
+    const char* e;
+    p.cup = static_cast<uint8_t>((e = std::getenv("SK_ONLINE_RACE_CUP")) ? std::atoi(e) : 0);
+    p.track = static_cast<uint8_t>((e = std::getenv("SK_ONLINE_RACE_TRACK")) ? std::atoi(e) : 0);
+    p.cc = static_cast<uint8_t>((e = std::getenv("SK_ONLINE_RACE_CC")) ? std::atoi(e) : 1);
+    p.delay = static_cast<uint8_t>((e = std::getenv("SK_ONLINE_DELAY")) ? std::atoi(e) : SuggestDelay());
+    p.seed = 1234;
+    std::vector<int> slots;
+    slots.push_back(0);
+    for (auto& kv : g_peers) slots.push_back(kv.second.slot);
+    std::sort(slots.begin(), slots.end());
+    for (int s : slots) {
+        int ch = s % 8;
+        if (s == 0) {
+            ch = g_myCharacter;
+        } else {
+            for (auto& kv : g_peers) {
+                if (kv.second.slot == s) ch = kv.second.character;
+            }
+        }
+        p.humans.push_back({ s, ch });
+    }
+    HostStartRace(p);
+}
+
 void Tick() {
     AutoStartFromEnv(NowMs());
+    AutoRaceFromEnv(NowMs());
     if (g_sock == kInvalidSock) return;
     uint64_t now = NowMs();
 
@@ -784,6 +1075,34 @@ void Tick() {
             HandleClientPacket(from, type, r, now);
         }
         if (g_sock == kInvalidSock) return; // la sala se cerro mientras procesabamos
+    }
+
+    // 1b) inicio de carrera: reenviar hasta que todos confirmen
+    if (g_role == Role::Host && g_race.starting && !g_peers.empty()) {
+        if (now - g_race.lastStartSend >= 500) {
+            g_race.lastStartSend = now;
+            Writer w = Begin(PKT_RACE_START);
+            WriteStart(w, g_race.params);
+            for (auto& kv : g_peers) {
+                if (!g_race.started[kv.second.slot]) SendTo(kv.second.addr, w);
+            }
+        }
+    }
+
+    // 1c) reenvios periodicos durante la carrera (si se pierde un paquete, nadie se queda esperando)
+    if (g_race.active) {
+        if (g_role == Role::Client && g_cstate == ClientState::Connected && g_race.anySubmitted &&
+            now - g_race.lastInputSend >= 100) {
+            SendClientInput(g_race.lastSubmitted);
+        }
+        if (g_role == Role::Host && now - g_race.lastFrameResend >= 100) {
+            g_race.lastFrameResend = now;
+            for (auto& kv : g_peers) {
+                if (g_race.hostNext > 0 && g_race.peerAck[kv.second.slot] < g_race.hostNext) {
+                    SendFrames(kv.second, g_race.hostNext - 1);
+                }
+            }
+        }
     }
 
     // 2) temporizadores
@@ -891,7 +1210,7 @@ std::vector<PeerInfo> GetPeers() {
     }
     if (g_role == Role::Client && g_cstate == ClientState::Connected) {
         if (g_roster.empty()) {
-            return { { g_mySlot, g_myName, g_myPing, std::string(), true } };
+            return { { g_mySlot, g_myName, g_myPing, std::string(), true, g_myCharacter } };
         }
         return g_roster;
     }
@@ -905,8 +1224,118 @@ void SetMaxPlayers(int n) {
 
 int GetMaxPlayers() { return g_maxPlayers; }
 
+void SetMyCharacter(int c) {
+    if (c < 0 || c > 7) return;
+    g_myCharacter = c;
+    if (g_role == Role::Host) {
+        g_rosterDirty = true;
+    } else if (g_role == Role::Client && g_cstate == ClientState::Connected) {
+        Writer w = Begin(PKT_CHARACTER);
+        w.u8(static_cast<uint8_t>(c));
+        SendTo(g_server, w);
+    }
+}
+
+int GetMyCharacter() { return g_myCharacter; }
+
 const std::string& GetStatus() { return g_status; }
 
 const std::vector<std::string>& GetLog() { return g_log; }
+
+// ---------- carrera en red ----------
+
+bool HostStartRace(const RaceParams& p) {
+    if (g_role != Role::Host || g_race.active || g_race.pending) return false;
+    g_race = RaceState();
+    g_race.params = p;
+    g_race.pending = true;
+    g_race.starting = true;
+    g_race.lastStartSend = 0;
+    Log("Iniciando la carrera para " + std::to_string(g_peers.size() + 1) + " jugador(es)");
+    return true;
+}
+
+bool PollRaceStart(RaceParams& out) {
+    if (!g_race.pending) return false;
+    out = g_race.params;
+    g_race.pending = false;
+    // se conserva el estado hasta RaceBegin()
+    return true;
+}
+
+void RaceBegin() {
+    const RaceParams params = g_race.params;
+    uint64_t lastSend = g_race.lastStartSend;
+    const bool starting = g_race.starting;
+    const bool received = g_race.received;
+    bool started[kMaxPlayers];
+    std::memcpy(started, g_race.started, sizeof(started));
+    g_race = RaceState();
+    g_race.params = params;
+    g_race.lastStartSend = lastSend;
+    g_race.starting = starting;
+    g_race.received = received;
+    std::memcpy(g_race.started, started, sizeof(started));
+    g_race.active = true;
+    g_race.delay = std::max<int>(1, std::min<int>(params.delay, 12));
+    g_race.humanMask = 0;
+    for (const RaceHuman& h : params.humans) {
+        if (h.slot >= 0 && h.slot < kMaxPlayers) g_race.humanMask |= static_cast<uint16_t>(1u << h.slot);
+    }
+    for (int i = 0; i < kRing; i++) {
+        g_race.frameReady[i] = false;
+        g_race.frameTick[i] = 0xFFFFFFFFu;
+        for (int s = 0; s < kMaxPlayers; s++) g_race.inputTick[i][s] = 0xFFFFFFFFu;
+        g_race.sentTick[i] = 0xFFFFFFFFu;
+    }
+    // los primeros 'delay' ticks salen neutros en todas las PCs (nadie ha podido pulsar aun)
+    Pad neutral[kMaxPlayers];
+    for (int t = 0; t < g_race.delay; t++) StoreFrame(static_cast<uint32_t>(t), neutral);
+    g_race.hostNext = static_cast<uint32_t>(g_race.delay);
+    g_race.ackNext = static_cast<uint32_t>(g_race.delay);
+    for (int s = 0; s < kMaxPlayers; s++) g_race.peerAck[s] = static_cast<uint32_t>(g_race.delay);
+    Log("Carrera cargada: " + std::to_string(HumanCount()) + " humano(s), retraso " + std::to_string(g_race.delay));
+}
+
+void RaceEnd() {
+    if (g_race.active || g_race.pending) Log("Carrera terminada");
+    g_race = RaceState();
+}
+
+bool RaceActive() { return g_race.active; }
+
+bool RaceBusy() { return g_race.active || g_race.pending || g_race.starting; }
+
+uint16_t RaceHumanMask() { return g_race.humanMask; }
+
+int RaceDelay() { return g_race.delay; }
+
+void RaceSubmitLocal(uint32_t tick, const Pad& pad) {
+    if (!g_race.active) return;
+    int slot = GetLocalSlot();
+    if (slot < 0) return;
+    int i = tick % kRing;
+    g_race.sent[i] = pad;
+    g_race.sentTick[i] = tick;
+    g_race.lastSubmitted = tick;
+    g_race.anySubmitted = true;
+    if (g_role == Role::Host) {
+        g_race.inputs[i][0] = pad;
+        g_race.inputTick[i][0] = tick;
+        HostTryComplete();
+    }
+    // el cliente manda su mando al instante (con los 5 anteriores por si se pierde algun paquete)
+    if (g_role == Role::Client && g_cstate == ClientState::Connected) {
+        SendClientInput(tick);
+    }
+}
+
+bool RaceGetFrame(uint32_t tick, Pad out[kMaxPlayers]) {
+    if (!g_race.active) return false;
+    if (!FrameKnown(tick)) return false;
+    int i = tick % kRing;
+    for (int s = 0; s < kMaxPlayers; s++) out[s] = g_race.frame[i][s];
+    return true;
+}
 
 } // namespace Net

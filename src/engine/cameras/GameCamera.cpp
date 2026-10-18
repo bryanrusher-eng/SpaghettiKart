@@ -4,6 +4,7 @@
 #include "port/interpolation/FrameInterpolation.h"
 #include "engine/Matrix.h"
 #include "port/Game.h"
+#include "online_race.h"
 
 extern "C" {
 #include "main.h"
@@ -90,6 +91,15 @@ void GameCamera::SetViewProjection() {
     // Calculate camera perspective (camera movement/location)
     guPerspective(&PerspectiveMatrix, &perspNorm, _camera->fieldOfView, gScreenAspect,
                   CM_GetProps()->NearPersp, CM_GetProps()->FarPersp, 1.0f);
+    if (gScreenContexts[0].camera == _camera) {
+        float pf[4][4], vf[4][4];
+        u16 pn;
+        guPerspectiveF(pf, &pn, _camera->fieldOfView, gScreenAspect, CM_GetProps()->NearPersp,
+                       CM_GetProps()->FarPersp, 1.0f);
+        guLookAtF(vf, _camera->pos[0], _camera->pos[1], _camera->pos[2], _camera->lookAt[0], _camera->lookAt[1],
+                  _camera->lookAt[2], _camera->up[0], _camera->up[1], _camera->up[2]);
+        online_store_view(pf, vf);
+    }
     gSPPerspNormalize(gDisplayListHead++, perspNorm);
     gSPMatrix(gDisplayListHead++, &PerspectiveMatrix,
               G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);

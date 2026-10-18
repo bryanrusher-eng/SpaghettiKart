@@ -3,6 +3,7 @@
 #include "ResolutionEditor.h"
 #include "FreecamWindow.h"
 #include "OnlineWindow.h"
+#include "OnlineOverlay.h"
 #include "Tools.h"
 #include "SceneExplorer.h"
 #include "Properties.h"
@@ -41,6 +42,7 @@ std::shared_ptr<Ship::GuiWindow> mPropertiesWindow;
 std::shared_ptr<Ship::GuiWindow> mTrackPropertiesWindow;
 std::shared_ptr<Ship::GuiWindow> mContentBrowserWindow;
 std::shared_ptr<Ship::GuiWindow> mOnlineWindow;
+std::shared_ptr<Ship::GuiWindow> mOnlineOverlay;
 
 void SetupGuiElements() {
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
@@ -91,6 +93,14 @@ void SetupGuiElements() {
 
     mOnlineWindow = std::make_shared<Online::OnlineWindow>("gOnlineWindowEnabled", "Online");
     gui->AddGuiWindow(mOnlineWindow);
+
+    // Capa transparente de la carrera en red (nombres sobre los karts, tabla de posiciones con L).
+    mOnlineOverlay = std::make_shared<Online::OverlayWindow>(
+        "", true, "OnlineOverlay", ImVec2(1, 1),
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+            ImGuiWindowFlags_NoMove);
+    gui->AddGuiWindow(mOnlineOverlay);
 }
 
 void Destroy() {
@@ -103,6 +113,7 @@ void Destroy() {
     mTrackPropertiesWindow = nullptr;
     mContentBrowserWindow = nullptr;
     mOnlineWindow = nullptr;
+    mOnlineOverlay = nullptr;
 }
 
 std::string GetWindowButtonText(const char* text, bool menuOpen) {

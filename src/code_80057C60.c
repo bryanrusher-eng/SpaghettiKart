@@ -3,6 +3,7 @@
  * @warning there are too many variables here
  */
 
+#include "online_race.h"
 #include <libultraship.h>
 #include <macros.h>
 #include <libultra/gbi.h>
@@ -331,7 +332,7 @@ s32 gObjectParticle4[gObjectParticle4_SIZE];
  * trees when you bonk into them
  */
 s32 gLeafParticle[gLeafParticle_SIZE];
-hud_player playerHUD[4];
+hud_player playerHUD[MAX_PLAYERS];
 /**
  * List of object list indices used by the clouds and stars in some stages
  * Also used for snowflakes like gObjectParticle1? Not sure what's up with that
@@ -730,16 +731,16 @@ void func_80058F78(void) {
 
         set_matrix_hud_screen();
         if ((!gDemoMode) && (gIsHUDVisible != 0) && (D_801657D8 == 0)) {
-            draw_item_window(PLAYER_ONE);
+            draw_item_window(online_view_slot());
             if (gHUDModes != 2) {
-                render_hud_timer(PLAYER_ONE);
-                draw_simplified_lap_count(PLAYER_ONE);
+                render_hud_timer(online_view_slot());
+                draw_simplified_lap_count(online_view_slot());
                 func_8004EB38(0);
                 if (D_801657E6 != false) {
                     if (CVarGetInteger("gEnableDigitalSpeedometer", false) == true) {
-                        render_digital_speedometer(PLAYER_ONE);
+                        render_digital_speedometer(online_view_slot());
                     }
-                    render_speedometer(PLAYER_ONE);
+                    render_speedometer(online_view_slot());
                 }
             }
         }
@@ -757,16 +758,16 @@ void func_8005902C(void) {
     if (D_8018D2AC != 0) {
         switch (gPlayerCountSelection1) {
             case 2:
-                func_8004EB30(PLAYER_ONE);
+                func_8004EB30(online_view_slot());
                 func_8004EB30(PLAYER_TWO);
                 break;
             case 3:
-                func_8004EB30(PLAYER_ONE);
+                func_8004EB30(online_view_slot());
                 func_8004EB30(PLAYER_TWO);
                 func_8004EB30(PLAYER_THREE);
                 break;
             case 4:
-                func_8004EB30(PLAYER_ONE);
+                func_8004EB30(online_view_slot());
                 func_8004EB30(PLAYER_TWO);
                 func_8004EB30(PLAYER_THREE);
                 func_8004EB30(PLAYER_FOUR);
@@ -781,21 +782,21 @@ void func_800590D4(void) {
             switch (gPlayerCountSelection1) {
                 case 1:
                     if (gModeSelection != TIME_TRIALS) {
-                        func_8004E800(PLAYER_ONE);
+                        func_8004E800(online_view_slot());
                         break;
                     }
                     break;
                 case 2:
-                    func_8004E800(PLAYER_ONE);
+                    func_8004E800(online_view_slot());
                     func_8004E800(PLAYER_TWO);
                     break;
                 case 3:
-                    func_8004E998(PLAYER_ONE);
+                    func_8004E998(online_view_slot());
                     func_8004E998(PLAYER_TWO);
                     func_8004E998(PLAYER_THREE);
                     break;
                 case 4:
-                    func_8004E998(PLAYER_ONE);
+                    func_8004E998(online_view_slot());
                     func_8004E998(PLAYER_TWO);
                     func_8004E998(PLAYER_THREE);
                     func_8004E998(PLAYER_FOUR);
@@ -850,13 +851,13 @@ void func_80059358(void) {
 
 void render_hud_2p_horizontal_player_two_horizontal_player_one(void) {
     if (gHUDDisable == 0) {
-        render_hud_timer(PLAYER_ONE);
-        if (playerHUD[PLAYER_ONE].lapCount != 3) {
-            draw_hud_2d_texture_32x8(playerHUD[PLAYER_ONE].lapX, playerHUD[PLAYER_ONE].lapY,
+        render_hud_timer(online_view_slot());
+        if (playerHUD[online_view_slot()].lapCount != 3) {
+            draw_hud_2d_texture_32x8(playerHUD[online_view_slot()].lapX, playerHUD[online_view_slot()].lapY,
                                      (u8*) common_texture_hud_lap); // draw the lap word
-            draw_lap_count(playerHUD[PLAYER_ONE].lapX + 0xC, playerHUD[PLAYER_ONE].lapY - 4,
-                           playerHUD[PLAYER_ONE].alsoLapCount);
-            draw_item_window(PLAYER_ONE);
+            draw_lap_count(playerHUD[online_view_slot()].lapX + 0xC, playerHUD[online_view_slot()].lapY - 4,
+                           playerHUD[online_view_slot()].alsoLapCount);
+            draw_item_window(online_view_slot());
         }
     }
 }
@@ -890,7 +891,7 @@ void func_800594F0(void) {
 
 void render_hud_2p_vertical_player_one(void) {
     if (gHUDDisable == 0) {
-        draw_simplified_hud(PLAYER_ONE);
+        draw_simplified_hud(online_view_slot());
     }
 }
 
@@ -935,7 +936,7 @@ void render_hud_1p_multi(void) {
         FrameInterpolation_RecordOpenChild("HudMatrix", 0);
 
         set_matrix_hud_screen();
-        render_hud_lap_3p_4p(PLAYER_ONE);
+        render_hud_lap_3p_4p(online_view_slot());
 
         FrameInterpolation_RecordCloseChild();
     }
@@ -1063,24 +1064,35 @@ void func_80059AC8(void) {
         switch (gScreenModeSelection) {
             case SCREEN_MODE_1P:
                 if (gGamestate != CREDITS_SEQUENCE) {
-                    func_80059A88(PLAYER_ONE);
+                    if (gOnlineRace) {
+                        // Marcador solo del kart local; la ruleta de items de TODOS los humanos (igual en todas las PCs).
+                        s32 slot;
+                        func_80059820(online_view_slot());
+                        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+                            if (online_slot_is_human(slot)) {
+                                func_8007BB9C(slot);
+                            }
+                        }
+                    } else {
+                        func_80059A88(online_view_slot());
+                    }
                     if (gModeSelection == TIME_TRIALS) {
                         func_8005995C();
                     }
                 } else {
-                    func_80059820(PLAYER_ONE);
+                    func_80059820(online_view_slot());
                 }
                 break;
             case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
-                func_80059A88(PLAYER_ONE);
+                func_80059A88(online_view_slot());
                 func_80059A88(PLAYER_TWO);
                 break;
             case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
-                func_80059A88(PLAYER_ONE);
+                func_80059A88(online_view_slot());
                 func_80059A88(PLAYER_TWO);
                 break;
             case SCREEN_MODE_3P_4P_SPLITSCREEN:
-                func_80059A88(PLAYER_ONE);
+                func_80059A88(online_view_slot());
                 func_80059A88(PLAYER_TWO);
                 func_80059A88(PLAYER_THREE);
                 func_80059A88(PLAYER_FOUR);
@@ -1117,18 +1129,18 @@ void func_80059D00(void) {
             case SCREEN_MODE_1P:
                 randomize_seed_from_controller(PLAYER_ONE);
                 if (D_8018D214 == false) {
-                    func_80059820(PLAYER_ONE);
+                    func_80059820(online_view_slot());
                     func_8005B914();
                     if (!gDemoMode) {
                         // func_8007AA44(0);
                     }
                     func_80078C70();
-                    if (playerHUD[PLAYER_ONE].raceCompleteBool == 0) {
+                    if (playerHUD[online_view_slot()].raceCompleteBool == 0) {
                         func_8005C360((gPlayerOne->speed / 18.0f) * 216.0f);
                     }
-                    func_8005D0FC(PLAYER_ONE);
+                    func_8005D0FC(online_view_slot());
                 } else {
-                    func_80059820(PLAYER_ONE);
+                    func_80059820(online_view_slot());
                     func_80078C70();
                     func_80059820(PLAYER_TWO);
                     //func_80078C70();
@@ -1137,8 +1149,8 @@ void func_80059D00(void) {
             case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:
                 randomize_seed_from_controller(PLAYER_ONE);
                 randomize_seed_from_controller(PLAYER_TWO);
-                func_80059820(PLAYER_ONE);
-                func_8005D0FC(PLAYER_ONE);
+                func_80059820(online_view_slot());
+                func_8005D0FC(online_view_slot());
                 if (!gDemoMode) {
                     // func_8007AA44(0);
                 }
@@ -1155,8 +1167,8 @@ void func_80059D00(void) {
             case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
                 randomize_seed_from_controller(PLAYER_ONE);
                 randomize_seed_from_controller(PLAYER_TWO);
-                func_80059820(PLAYER_ONE);
-                func_8005D0FC(PLAYER_ONE);
+                func_80059820(online_view_slot());
+                func_8005D0FC(online_view_slot());
                 if (!gDemoMode) {
                     // func_8007AA44(0);
                 }
@@ -1174,8 +1186,8 @@ void func_80059D00(void) {
                 randomize_seed_from_controller(PLAYER_TWO);
                 randomize_seed_from_controller(PLAYER_THREE);
                 randomize_seed_from_controller(PLAYER_FOUR);
-                func_80059820(PLAYER_ONE);
-                func_8005D0FC(PLAYER_ONE);
+                func_80059820(online_view_slot());
+                func_8005D0FC(online_view_slot());
                 if (!gDemoMode) {
                     // func_8007AA44(0);
                 }
@@ -1225,7 +1237,7 @@ void func_8005A070(void) {
             CM_TickObjects();
             CM_TickParticles();
         } else if (gGamestate == CREDITS_SEQUENCE) {
-            func_80059820(PLAYER_ONE);
+            func_80059820(online_view_slot());
             func_80078C70();
             CM_TickObjects();
             CM_TickParticles();
@@ -1451,359 +1463,359 @@ void func_8005AB20(void) {
 }
 
 void func_8005AB60(void) {
-    switch (playerHUD[PLAYER_ONE].unk_78) {
+    switch (playerHUD[online_view_slot()].unk_78) {
         case 0:
             break;
         case 1:
-            s16_step_towards(&playerHUD[PLAYER_ONE].speedometerX, 0x106, 0x10);
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].speedometerY, 0xB6, 0x10) != 0) {
-                playerHUD[PLAYER_ONE].unk_78++;
-                playerHUD[PLAYER_ONE].unk_79 = 1;
+            s16_step_towards(&playerHUD[online_view_slot()].speedometerX, 0x106, 0x10);
+            if (s16_step_towards(&playerHUD[online_view_slot()].speedometerY, 0xB6, 0x10) != 0) {
+                playerHUD[online_view_slot()].unk_78++;
+                playerHUD[online_view_slot()].unk_79 = 1;
             }
             break;
         case 2:
-            s16_step_towards(&playerHUD[PLAYER_ONE].speedometerX, 0x116, 4);
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].speedometerY, 0xC6, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_78++;
+            s16_step_towards(&playerHUD[online_view_slot()].speedometerX, 0x116, 4);
+            if (s16_step_towards(&playerHUD[online_view_slot()].speedometerY, 0xC6, 4) != 0) {
+                playerHUD[online_view_slot()].unk_78++;
             }
             break;
         case 3:
-            s16_step_towards(&playerHUD[PLAYER_ONE].speedometerX, 0x106, 4);
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].speedometerY, 0xB6, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_78++;
+            s16_step_towards(&playerHUD[online_view_slot()].speedometerX, 0x106, 4);
+            if (s16_step_towards(&playerHUD[online_view_slot()].speedometerY, 0xB6, 4) != 0) {
+                playerHUD[online_view_slot()].unk_78++;
             }
             break;
         case 4:
-            s16_step_towards(&playerHUD[PLAYER_ONE].speedometerX, 0x10E, 4);
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].speedometerY, 0xBE, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_78++;
+            s16_step_towards(&playerHUD[online_view_slot()].speedometerX, 0x10E, 4);
+            if (s16_step_towards(&playerHUD[online_view_slot()].speedometerY, 0xBE, 4) != 0) {
+                playerHUD[online_view_slot()].unk_78++;
             }
             break;
         case 5:
-            s16_step_towards(&playerHUD[PLAYER_ONE].speedometerX, 0x106, 4);
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].speedometerY, 0xB6, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_78++;
+            s16_step_towards(&playerHUD[online_view_slot()].speedometerX, 0x106, 4);
+            if (s16_step_towards(&playerHUD[online_view_slot()].speedometerY, 0xB6, 4) != 0) {
+                playerHUD[online_view_slot()].unk_78++;
             }
             break;
         case 6:
-            s16_step_towards(&playerHUD[PLAYER_ONE].speedometerX, 0x10A, 2);
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].speedometerY, 0xBA, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_78++;
+            s16_step_towards(&playerHUD[online_view_slot()].speedometerX, 0x10A, 2);
+            if (s16_step_towards(&playerHUD[online_view_slot()].speedometerY, 0xBA, 2) != 0) {
+                playerHUD[online_view_slot()].unk_78++;
             }
             break;
         case 7:
-            s16_step_towards(&playerHUD[PLAYER_ONE].speedometerX, 0x106, 2);
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].speedometerY, 0xB6, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_78++;
+            s16_step_towards(&playerHUD[online_view_slot()].speedometerX, 0x106, 2);
+            if (s16_step_towards(&playerHUD[online_view_slot()].speedometerY, 0xB6, 2) != 0) {
+                playerHUD[online_view_slot()].unk_78++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_78 = 0;
+            playerHUD[online_view_slot()].unk_78 = 0;
             break;
     }
-    if ((playerHUD[PLAYER_ONE].unk_79 != 0) && (playerHUD[PLAYER_ONE].unk_79 == 1)) {
+    if ((playerHUD[online_view_slot()].unk_79 != 0) && (playerHUD[online_view_slot()].unk_79 == 1)) {
         if (++D_801657E7 >= 0x10) {
             D_801657E7 = 0;
             D_8016579E = 0xDD00;
-            playerHUD[PLAYER_ONE].unk_79 = 0U;
+            playerHUD[online_view_slot()].unk_79 = 0U;
         } else {
             D_8016579E = D_800E55B0[D_801657E7] + 0xDD00;
         }
     }
-    switch (playerHUD[PLAYER_ONE].unk_80) {
+    switch (playerHUD[online_view_slot()].unk_80) {
         case 0:
             break;
         case 1:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].slideItemBoxY, 0x40, 8) != 0) {
-                playerHUD[PLAYER_ONE].unk_80++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].slideItemBoxY, 0x40, 8) != 0) {
+                playerHUD[online_view_slot()].unk_80++;
             }
             break;
         case 2:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].slideItemBoxY, 0x38, 8) != 0) {
-                playerHUD[PLAYER_ONE].unk_80++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].slideItemBoxY, 0x38, 8) != 0) {
+                playerHUD[online_view_slot()].unk_80++;
             }
             break;
         case 3:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].slideItemBoxY, 0x40, 8) != 0) {
-                playerHUD[PLAYER_ONE].unk_80++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].slideItemBoxY, 0x40, 8) != 0) {
+                playerHUD[online_view_slot()].unk_80++;
             }
             break;
         case 4:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].slideItemBoxY, 0x38, 8) != 0) {
-                playerHUD[PLAYER_ONE].unk_80++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].slideItemBoxY, 0x38, 8) != 0) {
+                playerHUD[online_view_slot()].unk_80++;
             }
             break;
         case 5:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].slideItemBoxY, 0x40, 8) != 0) {
-                playerHUD[PLAYER_ONE].unk_80++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].slideItemBoxY, 0x40, 8) != 0) {
+                playerHUD[online_view_slot()].unk_80++;
             }
             break;
         case 6:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].slideItemBoxY, 0x38, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_80++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].slideItemBoxY, 0x38, 4) != 0) {
+                playerHUD[online_view_slot()].unk_80++;
             }
             break;
         case 7:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].slideItemBoxY, 0x40, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_80++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].slideItemBoxY, 0x40, 4) != 0) {
+                playerHUD[online_view_slot()].unk_80++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_80 = 0;
+            playerHUD[online_view_slot()].unk_80 = 0;
             break;
     }
-    switch (playerHUD[PLAYER_ONE].unk_7A) {
+    switch (playerHUD[online_view_slot()].unk_7A) {
         case 0:
             break;
         case 1:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].timerX, 0xE4, 0x10) != 0) {
-                playerHUD[PLAYER_ONE].unk_7A++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].timerX, 0xE4, 0x10) != 0) {
+                playerHUD[online_view_slot()].unk_7A++;
             }
             break;
         case 2:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].timerX, 0xF4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7A++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].timerX, 0xF4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7A++;
             }
             break;
         case 3:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].timerX, 0xE4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7A++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].timerX, 0xE4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7A++;
             }
             break;
         case 4:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].timerX, 0xEC, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7A++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].timerX, 0xEC, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7A++;
             }
             break;
         case 5:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].timerX, 0xE4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7A++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].timerX, 0xE4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7A++;
             }
             break;
         case 6:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].timerX, 0xE8, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7A++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].timerX, 0xE8, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7A++;
             }
             break;
         case 7:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].timerX, 0xE4, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7A++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].timerX, 0xE4, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7A++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_7A = 0;
+            playerHUD[online_view_slot()].unk_7A = 0;
             break;
     }
-    switch (playerHUD[PLAYER_ONE].unk_7D) {
+    switch (playerHUD[online_view_slot()].unk_7D) {
         case 0:
             break;
         case 1:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapX, 0x53, 0x10) != 0) {
-                playerHUD[PLAYER_ONE].unk_7D++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapX, 0x53, 0x10) != 0) {
+                playerHUD[online_view_slot()].unk_7D++;
             }
             break;
         case 2:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapX, 0x43, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7D++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapX, 0x43, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7D++;
             }
             break;
         case 3:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapX, 0x53, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7D++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapX, 0x53, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7D++;
             }
             break;
         case 4:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapX, 0x4B, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7D++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapX, 0x4B, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7D++;
             }
             break;
         case 5:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapX, 0x53, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7D++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapX, 0x53, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7D++;
             }
             break;
         case 6:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapX, 0x4F, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7D++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapX, 0x4F, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7D++;
             }
             break;
         case 7:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapX, 0x53, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7D++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapX, 0x53, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7D++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_7D = 0;
+            playerHUD[online_view_slot()].unk_7D = 0;
             break;
     }
-    D_8018CFEC = (f32) (playerHUD[PLAYER_ONE].speedometerX + 0x18);
-    D_8018CFF4 = (f32) (playerHUD[PLAYER_ONE].speedometerY + 6);
-    switch (playerHUD[PLAYER_ONE].unk_7B) {
+    D_8018CFEC = (f32) (playerHUD[online_view_slot()].speedometerX + 0x18);
+    D_8018CFF4 = (f32) (playerHUD[online_view_slot()].speedometerY + 6);
+    switch (playerHUD[online_view_slot()].unk_7B) {
         case 0:
             break;
         case 1:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xE4, 0x10) != 0) {
-                playerHUD[PLAYER_ONE].unk_7B++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xE4, 0x10) != 0) {
+                playerHUD[online_view_slot()].unk_7B++;
             }
             break;
         case 2:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xF4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7B++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xF4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7B++;
             }
             break;
         case 3:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xE4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7B++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xE4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7B++;
             }
             break;
         case 4:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xEC, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7B++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xEC, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7B++;
             }
             break;
         case 5:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xE4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7B++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xE4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7B++;
             }
             break;
         case 6:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xE8, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7B++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xE8, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7B++;
             }
             break;
         case 7:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xE4, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7B++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xE4, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7B++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_7B = 0;
+            playerHUD[online_view_slot()].unk_7B = 0;
             break;
     }
-    switch (playerHUD[PLAYER_ONE].unk_7E) {
+    switch (playerHUD[online_view_slot()].unk_7E) {
         case 0:
             break;
         case 1:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage1X, 0x53, 0x10) != 0) {
-                playerHUD[PLAYER_ONE].unk_7E++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage1X, 0x53, 0x10) != 0) {
+                playerHUD[online_view_slot()].unk_7E++;
             }
             break;
         case 2:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage1X, 0x43, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7E++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage1X, 0x43, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7E++;
             }
             break;
         case 3:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage1X, 0x53, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7E++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage1X, 0x53, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7E++;
             }
             break;
         case 4:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage1X, 0x4B, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7E++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage1X, 0x4B, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7E++;
             }
             break;
         case 5:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage1X, 0x53, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7E++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage1X, 0x53, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7E++;
             }
             break;
         case 6:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage1X, 0x4F, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7E++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage1X, 0x4F, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7E++;
             }
             break;
         case 7:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage1X, 0x53, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7E++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage1X, 0x53, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7E++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_7E = 0;
+            playerHUD[online_view_slot()].unk_7E = 0;
             break;
     }
-    switch (playerHUD[PLAYER_ONE].unk_7C) {
+    switch (playerHUD[online_view_slot()].unk_7C) {
         case 0:
             break;
         case 1:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xE4, 0x10) != 0) {
-                playerHUD[PLAYER_ONE].unk_7C++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xE4, 0x10) != 0) {
+                playerHUD[online_view_slot()].unk_7C++;
             }
             break;
         case 2:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xF4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7C++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xF4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7C++;
             }
             break;
         case 3:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xE4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7C++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xE4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7C++;
             }
             break;
         case 4:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xEC, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7C++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xEC, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7C++;
             }
             break;
         case 5:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xE4, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7C++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xE4, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7C++;
             }
             break;
         case 6:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xE8, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7C++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xE8, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7C++;
             }
             break;
         case 7:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xE4, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7C++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xE4, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7C++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_7C = 0;
+            playerHUD[online_view_slot()].unk_7C = 0;
             break;
     }
-    switch (playerHUD[PLAYER_ONE].unk_7F) {
+    switch (playerHUD[online_view_slot()].unk_7F) {
         case 0:
             break;
         case 1:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage2X, 0x53, 0x10) != 0) {
-                playerHUD[PLAYER_ONE].unk_7F++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage2X, 0x53, 0x10) != 0) {
+                playerHUD[online_view_slot()].unk_7F++;
             }
             break;
         case 2:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage2X, 0x43, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7F++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage2X, 0x43, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7F++;
             }
             break;
         case 3:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage2X, 0x53, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7F++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage2X, 0x53, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7F++;
             }
             break;
         case 4:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage2X, 0x4B, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7F++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage2X, 0x4B, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7F++;
             }
             break;
         case 5:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage2X, 0x53, 4) != 0) {
-                playerHUD[PLAYER_ONE].unk_7F++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage2X, 0x53, 4) != 0) {
+                playerHUD[online_view_slot()].unk_7F++;
             }
             break;
         case 6:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage2X, 0x4F, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7F++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage2X, 0x4F, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7F++;
             }
             break;
         case 7:
-            if (s16_step_towards(&playerHUD[PLAYER_ONE].lapAfterImage2X, 0x53, 2) != 0) {
-                playerHUD[PLAYER_ONE].unk_7F++;
+            if (s16_step_towards(&playerHUD[online_view_slot()].lapAfterImage2X, 0x53, 2) != 0) {
+                playerHUD[online_view_slot()].unk_7F++;
             }
             break;
         case 8:
-            playerHUD[PLAYER_ONE].unk_7F = 0;
+            playerHUD[online_view_slot()].unk_7F = 0;
             break;
     }
 }
@@ -1816,10 +1828,10 @@ void func_8005B7A0(void) {
     UNUSED f32* var_s1;
     s32 var_s0;
 
-    s16_step_towards(&playerHUD[PLAYER_ONE].lap1CompletionTimeX, 0xE4, 0x10);
-    s16_step_towards(&playerHUD[PLAYER_ONE].lap2CompletionTimeX, 0xE4, 0x10);
-    s16_step_towards(&playerHUD[PLAYER_ONE].lap3CompletionTimeX, 0xE4, 0x10);
-    s16_step_towards(&playerHUD[PLAYER_ONE].totalTimeX, 0xE4, 0x10);
+    s16_step_towards(&playerHUD[online_view_slot()].lap1CompletionTimeX, 0xE4, 0x10);
+    s16_step_towards(&playerHUD[online_view_slot()].lap2CompletionTimeX, 0xE4, 0x10);
+    s16_step_towards(&playerHUD[online_view_slot()].lap3CompletionTimeX, 0xE4, 0x10);
+    s16_step_towards(&playerHUD[online_view_slot()].totalTimeX, 0xE4, 0x10);
     for (var_s0 = 0; var_s0 < NUM_PLAYERS; var_s0++) {
         temp_s2 = &D_8018D028[var_s0];
         temp_s3 = &D_8018D0C8[var_s0];
@@ -1849,27 +1861,27 @@ void func_8005B914(void) {
             break;
         case 0x2:
             if (gModeSelection == TIME_TRIALS) {
-                playerHUD[PLAYER_ONE].unk_80 = 1;
+                playerHUD[online_view_slot()].unk_80 = 1;
             }
-            playerHUD[PLAYER_ONE].unk_78 = 1;
-            playerHUD[PLAYER_ONE].unk_7A = 1;
-            playerHUD[PLAYER_ONE].unk_7D = 1;
+            playerHUD[online_view_slot()].unk_78 = 1;
+            playerHUD[online_view_slot()].unk_7A = 1;
+            playerHUD[online_view_slot()].unk_7D = 1;
             func_8005AA4C();
             break;
         case 0x3:
             func_8005AA94(0);
             break;
         case 0x4:
-            playerHUD[PLAYER_ONE].unk_7B = 1;
-            playerHUD[PLAYER_ONE].unk_7E = 1;
+            playerHUD[online_view_slot()].unk_7B = 1;
+            playerHUD[online_view_slot()].unk_7E = 1;
             func_8005AA4C();
             break;
         case 0x5:
             func_8005AA94(0);
             break;
         case 0x6:
-            playerHUD[PLAYER_ONE].unk_7C = 1;
-            playerHUD[PLAYER_ONE].unk_7F = 1;
+            playerHUD[online_view_slot()].unk_7C = 1;
+            playerHUD[online_view_slot()].unk_7F = 1;
             func_8005AA4C();
             func_8005AA80();
             break;
@@ -2132,7 +2144,7 @@ void func_8005B914(void) {
 }
 
 void func_8005C360(f32 arg0) {
-    if (!playerHUD[PLAYER_ONE].unk_79) {
+    if (!playerHUD[online_view_slot()].unk_79) {
         u16 v;
         if (arg0 < 10.0) {
             v = (u16) (128.0f * arg0) + 0xDD00;

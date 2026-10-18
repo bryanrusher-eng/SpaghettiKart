@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <macros.h>
 #include <defines.h>
@@ -2493,7 +2494,7 @@ void func_8007B254(s32 objectIndex, s32 arg1) {
         test = gObjectList[objectIndex].type;
         gObjectList[objectIndex].textureListIndex = test;
         gObjectList[objectIndex].unk_0A2 = test;
-        playerHUD[PLAYER_ONE].slideItemBoxY = 0;
+        playerHUD[online_view_slot()].slideItemBoxY = 0;
         D_80165888 = 0;
     } else {
         func_800C8F80(arg1, 0x0100FE1CU);

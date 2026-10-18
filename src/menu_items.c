@@ -1,3 +1,4 @@
+#include "online_menu.h"
 #include <libultraship.h>
 #include <libultra/types.h>
 #include <macros.h>
@@ -9520,6 +9521,9 @@ void handle_menus_with_pri_arg(s32 priSpecial) {
                 render_menus(menuItem);
             }
         }
+    }
+    if (priSpecial == 0) {
+        online_menu_render(); // menu Online (solo dibuja si esta abierto)
     }
 }
 

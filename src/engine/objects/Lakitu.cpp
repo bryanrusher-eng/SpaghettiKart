@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include "Lakitu.h"
@@ -40,7 +41,12 @@ extern "C" {
 extern s8 gPlayerCount;
 }
 
-size_t OLakitu::_count = 0; 
+size_t OLakitu::_count = 0;
+
+// En carrera online el Lakitu se coloca y actua sobre el kart de esta PC, no sobre el jugador 0.
+static s32 LakituTargetPlayer(s32 playerId) {
+    return online_race_setup_active() ? online_view_slot() : playerId;
+}
 
 OLakitu::OLakitu(s32 playerId, LakituType type) {
     Name = "Lakitu";
@@ -53,6 +59,11 @@ OLakitu::OLakitu(s32 playerId, LakituType type) {
             mCameraId = cameras[i].cameraId;
             break;
         }
+    }
+    // Carrera online: la camara de esta PC (la 0) sigue a su propio kart, que no es el jugador 0.
+    // (las camaras sin uso tienen playerId 0 y podrian coincidir con el jugador 0: se fuerza la 0).
+    if (online_race_setup_active()) {
+        mCameraId = 0;
     }
 
     _idx = _count;
@@ -72,14 +83,15 @@ void OLakitu::Tick() {
 }
 
 void OLakitu::Tick60fps() { // update_object_lakitu
-    s32 playerId = mPlayerId;
+    s32 starterId = mPlayerId; // el Lakitu de salida es el del jugador 0 en todas las PCs (da el pistoletazo)
+    s32 playerId = LakituTargetPlayer(mPlayerId);
     s32 objectIndex = mLakituId;
 
     switch (gObjectList[objectIndex].unk_0D8) {
         case 0:
             break;
         case 1:
-            OLakitu::update_object_lakitu_starter(objectIndex, playerId);
+            OLakitu::update_object_lakitu_starter(objectIndex, starterId);
             func_8008BFFC(objectIndex);
             break;
         case 2:
@@ -359,6 +371,10 @@ void OLakitu::func_800729EC(s32 objectIndex) {
         for (i = 0; i < gPlayerCount; i++) {
             playerHUD[i].unk_81 = temp_v1;
         }
+    }
+    // Carrera en red: el marcador de esta PC es el del slot propio (puede no ser el 0).
+    if (!IsYoshiValley() && online_race_setup_active()) {
+        playerHUD[online_view_slot()].unk_81 = temp_v1;
     }
     func_8005AB20();
 }
@@ -851,7 +867,7 @@ void OLakitu::update_object_lakitu_reverse(s32 objectIndex, s32 playerId) {
 }
 
 void OLakitu::func_8007A66C(s32 objectIndex) {
-    Player* player = &gPlayers[mPlayerId];
+    Player* player = &gPlayers[LakituTargetPlayer(mPlayerId)];
 
     if (mCameraId == -1) {
         return;
@@ -871,7 +887,7 @@ void OLakitu::func_8007A66C(s32 objectIndex) {
 }
 
 void OLakitu::func_8007A778(s32 objectIndex) {
-    Player* player = &gPlayers[mPlayerId];
+    Player* player = &gPlayers[LakituTargetPlayer(mPlayerId)];
     if (mCameraId == -1) {
         return;
     }
@@ -912,7 +928,7 @@ void OLakitu::func_8007A910(s32 arg0) {
 void OLakitu::func_8007AA44(s32 playerId) {
     s32 objectIndex;
 
-    OLakitu::func_8007A910(playerId);
+    OLakitu::func_8007A910(LakituTargetPlayer(playerId));
     objectIndex = mLakituId;
     gLakituTexturePtr = (const char**) &gLakituTextureBuffer[playerId];
     switch (gObjectList[objectIndex].unk_0D8) {

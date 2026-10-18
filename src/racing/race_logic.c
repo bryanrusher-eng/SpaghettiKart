@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <stdio.h>
 #include <macros.h>
@@ -758,6 +759,12 @@ void func_8028F970(void) {
         return;
     }
 
+    // Carrera en red: sin pausa (un Start de cualquiera pausaria a todos) y L queda libre para la tabla de
+    // posiciones (en la carrera normal L cambia el volumen de la musica; online se ajusta desde el menu F1).
+    if (gOnlineRace) {
+        return;
+    }
+
     //! @todo increasing players past four would require increase this loop iterator.
     for (i = 0; i < 4; i++) {
 
@@ -1224,7 +1231,7 @@ void func_80290B14(void) {
 
     switch (gActiveScreenMode) {
         case SCREEN_MODE_1P:
-            func_8001EE98(gPlayerOne, camera1, 0);
+            func_8001EE98(&gPlayers[online_view_slot()], camera1, 0);
             break;
         case SCREEN_MODE_2P_SPLITSCREEN_HORIZONTAL:
         case SCREEN_MODE_2P_SPLITSCREEN_VERTICAL:

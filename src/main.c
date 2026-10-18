@@ -38,6 +38,7 @@
 #include "port/interpolation/FrameInterpolation.h"
 #include "engine/wasm.h"
 #include "port/Game.h"
+#include "online_race.h"
 #include "port/Engine.h"
 #include "engine/Matrix.h"
 #include "engine/TrackBrowser.h"
@@ -101,7 +102,7 @@ OSMesgQueue gSIEventMesgQueue;
 OSMesg gSIEventMesgBuf[3];
 
 OSContStatus gControllerStatuses[4];
-OSContPad gControllerPads[4];
+OSContPad gControllerPads[MAX_PLAYERS]; // 4 fisicos + slots online
 u8 gControllerBits;
 // Contains a 32x32 grid of indices into gCollisionIndices containing indices into gCollisionMesh
 CollisionGrid gCollisionGrid[1024];
@@ -392,9 +393,22 @@ void update_controller(s32 index) {
 void read_controllers(void) {
     // OSMesg msg;
 
+    online_check_end();
+
     osContStartReadData(&gSIEventMesgQueue);
     // osRecvMesg(&gSIEventMesgQueue, &msg, OS_MESG_BLOCK);
     osContGetReadData(gControllerPads);
+
+    if (gOnlineRace) {
+        // Carrera en red: los mandos de todos los slots llegan por red (el del puerto 1 va al slot propio).
+        s32 slot;
+        online_apply_pads();
+        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+            update_controller(slot);
+        }
+        return;
+    }
+
     update_controller(0);
     update_controller(1);
     update_controller(2);

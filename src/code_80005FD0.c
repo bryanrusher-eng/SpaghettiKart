@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <macros.h>
 #include <defines.h>
@@ -1539,7 +1540,18 @@ void update_player_path_completion(s32 playerId, Player* player) {
     }
     if ((player->type & PLAYER_HUMAN) && !(player->type & PLAYER_CPU)) {
         detect_wrong_player_direction(playerId, player);
-        if ((gModeSelection == GRAND_PRIX) && (gPlayerCount == 2) && (playerId == 0)) {
+        if (online_race_setup_active() && (playerId == 0)) {
+            // Carrera en red: el mejor clasificado entre todos los humanos (igual en todas las PCs).
+            s32 best = 0;
+            s32 slot;
+            for (slot = 1; slot < NUM_PLAYERS; slot++) {
+                if (online_slot_is_human(slot) &&
+                    (gGPCurrentRaceRankByPlayerIdDup[slot] < gGPCurrentRaceRankByPlayerIdDup[best])) {
+                    best = slot;
+                }
+            }
+            gBestRankedHumanPlayer = best;
+        } else if ((gModeSelection == GRAND_PRIX) && (gPlayerCount == 2) && (playerId == 0)) {
             if (gGPCurrentRaceRankByPlayerIdDup[PLAYER_ONE] < gGPCurrentRaceRankByPlayerIdDup[PLAYER_TWO]) {
                 gBestRankedHumanPlayer = PLAYER_ONE;
             } else {

@@ -1,4 +1,5 @@
 #include "port/net/Net.h"
+#include "online_race.h"
 #include <libultraship.h>
 #include <typeinfo>
 
@@ -685,10 +686,25 @@ void CM_SpawnStarterLakitu() {
             continue; // Already exists, skip spawning
         }
 
+        // El Lakitu de salida debe ser el del jugador 0 en TODAS las PCs: solo ese da el pistoletazo.
         auto lakitu = std::make_unique<OLakitu>(i, OLakitu::LakituType::STARTER);
         GetWorld()->Lakitus[i] = lakitu.get();
         GetWorld()->AddObject(std::move(lakitu));
     }
+}
+
+// Lakitu de la pantalla de este jugador. En carrera online solo existe el del kart local (los demas humanos
+// no tienen pantalla en esta PC), y puede que no exista ninguno: devuelve nullptr en ese caso.
+static OLakitu* FindLakitu(s32 playerId) {
+    s32 key = playerId;
+    if (online_race_setup_active()) {
+        if (playerId != online_view_slot()) {
+            return nullptr;
+        }
+        key = 0;
+    }
+    auto it = GetWorld()->Lakitus.find(key);
+    return (it != GetWorld()->Lakitus.end()) ? it->second : nullptr;
 }
 
 // Checkered flag lakitu
@@ -696,28 +712,36 @@ void CM_ActivateFinishLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::FINISH);
+    if (OLakitu* lakitu = FindLakitu(playerId)) {
+        lakitu->Activate(OLakitu::LakituType::FINISH);
+    }
 }
 
 void CM_ActivateSecondLapLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::SECOND_LAP);
+    if (OLakitu* lakitu = FindLakitu(playerId)) {
+        lakitu->Activate(OLakitu::LakituType::SECOND_LAP);
+    }
 }
 
 void CM_ActivateFinalLapLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::FINAL_LAP);
+    if (OLakitu* lakitu = FindLakitu(playerId)) {
+        lakitu->Activate(OLakitu::LakituType::FINAL_LAP);
+    }
 }
 
 void CM_ActivateReverseLakitu(s32 playerId) {
     if ((gDemoMode) || (gGamestate == CREDITS_SEQUENCE)) {
         return;
     }
-    GetWorld()->Lakitus[playerId]->Activate(OLakitu::LakituType::REVERSE);
+    if (OLakitu* lakitu = FindLakitu(playerId)) {
+        lakitu->Activate(OLakitu::LakituType::REVERSE);
+    }
 }
 
 size_t GetCupCursorPosition() {
@@ -989,6 +1013,7 @@ void push_frame() {
     GameEngine::StartAudioFrame();
     GameEngine::Instance->StartFrame();
     Net::Tick();
+    online_poll_start();
     thread5_iteration();
     GameEngine::EndAudioFrame();
     // thread5_game_loop();

@@ -147,6 +147,27 @@ void OnlineWindow::DrawElement() {
                 ImGui::TextDisabled("Pasale este codigo a tus amigos.");
             }
         }
+        if (role == Net::Role::Host) {
+            static int cup = 0, track = 1, cc = 1;
+            static const char* cupNames[] = { "Copa Champinon", "Copa Flor", "Copa Estrella", "Copa Especial" };
+            static const char* ccNames[] = { "50cc", "100cc", "150cc" };
+            ImGui::Separator();
+            ImGui::Combo("Copa", &cup, cupNames, 4);
+            ImGui::SliderInt("Pista de la copa", &track, 1, 4);
+            ImGui::Combo("Cilindrada", &cc, ccNames, 3);
+            if (!Net::RaceActive()) {
+                if (ImGui::Button("Iniciar carrera")) {
+                    Net::RaceParams p;
+                    p.cup = static_cast<uint8_t>(cup);
+                    p.track = static_cast<uint8_t>(track - 1);
+                    p.cc = static_cast<uint8_t>(cc);
+                    p.delay = static_cast<uint8_t>(Net::SuggestDelay());
+                    p.seed = static_cast<uint16_t>(static_cast<int>(ImGui::GetTime() * 1000.0)) | 1;
+                    for (const Net::PeerInfo& pi : Net::GetPeers()) p.humans.push_back({ pi.slot, pi.slot % 8 });
+                    Net::HostStartRace(p);
+                }
+            }
+        }
         if (ImGui::Button("Desconectar")) {
             Net::Disconnect();
         }

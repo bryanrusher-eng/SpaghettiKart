@@ -28,6 +28,7 @@
 #include "effects.h"
 #include "decode.h"
 #include "port/Game.h"
+#include "online_race.h"
 
 f32 D_80165210[MAX_PLAYERS];
 f32 D_80165230[MAX_PLAYERS];
@@ -502,7 +503,7 @@ void func_80039DA4(void) {
     };
 
     if (((GetCupCursorPosition() == TRACK_ONE) && (D_8016556E == 0)) || (gDemoMode == 1) ||
-        (gDebugMenuSelection == DEBUG_MENU_OPTION_SELECTED)) {
+        (gDebugMenuSelection == DEBUG_MENU_OPTION_SELECTED) || online_race_setup_active()) {
         for (i = 0; i < NUM_PLAYERS; i++) {
             D_80165270[i] = sp2C[i];
         }
@@ -521,7 +522,7 @@ void spawn_players_gp_one_player(f32* arg0, f32* arg1, f32 arg2) {
     s32 i;
     func_80039DA4();
     if (((GetCupCursorPosition() == TRACK_ONE) && (D_8016556E == 0)) || (gDemoMode == 1) ||
-        (gDebugMenuSelection == DEBUG_MENU_OPTION_SELECTED)) {
+        (gDebugMenuSelection == DEBUG_MENU_OPTION_SELECTED) || online_race_setup_active()) {
         s16 rand;
         s16 i;
 
@@ -560,10 +561,14 @@ void spawn_players_gp_one_player(f32* arg0, f32* arg1, f32 arg2) {
         for (i = 0; i < NUM_PLAYERS; i++) {
             // A partir del tercer kart, cada pareja intercambia la columna (como en el juego original).
             s32 columnSlot = (i >= 2) ? (i ^ 1) : i;
+            // En una carrera online son humanos los slots de los jugadores conectados; el resto, CPU.
+            s32 isHuman = online_race_setup_active() ? online_slot_is_human(i) : (i == 0);
+            s32 character = isHuman ? (online_race_setup_active() ? online_slot_character(i) : gCharacterSelections[0])
+                                    : chooseCPUPlayers[(i > 0) ? (i - 1) : 0];
             spawn_player(&gPlayers[i], i, arg0[D_80165270[columnSlot]], arg1[D_80165270[i]] + 250.0f, arg2, 32768.0f,
-                         (i == 0) ? gCharacterSelections[0] : chooseCPUPlayers[i - 1],
+                         character,
                          (PLAYER_EXISTS | PLAYER_STAGING | PLAYER_START_SEQUENCE |
-                          ((i == 0) ? PLAYER_HUMAN : PLAYER_CPU)));
+                          (isHuman ? PLAYER_HUMAN : PLAYER_CPU)));
         }
         D_80164A28 = 1;
     }
@@ -1254,10 +1259,10 @@ void spawn_single_player_camera(u32 mode) {
     if (gModeSelection == GRAND_PRIX && !gDemoMode) {
         if (IsToadsTurnpike()) {
             spawn[0] = 0.0f;
-            spawn[2] = D_80165230[7];
+            spawn[2] = D_80165230[NUM_PLAYERS - 1];
         } else {
-            spawn[0] = (D_80165210[7] + D_80165210[6]) / 2;
-            spawn[2] = D_80165230[7];
+            spawn[0] = (D_80165210[NUM_PLAYERS - 1] + D_80165210[NUM_PLAYERS - 2]) / 2;
+            spawn[2] = D_80165230[NUM_PLAYERS - 1];
 
         }
     }
@@ -1266,7 +1271,7 @@ void spawn_single_player_camera(u32 mode) {
     if (!camera) {
         CM_ThrowRuntimeError("[spawn_players] [spawn_single_player_camera] NULL camera while attempting to create camera for player one");
     }
-    CM_AttachCamera(camera, PLAYER_ONE);
+    CM_AttachCamera(camera, online_view_slot());
     gScreenContexts[PLAYER_ONE].camera = camera;
     gScreenContexts[PLAYER_ONE].raceCamera = camera;
 
@@ -1283,7 +1288,7 @@ void spawn_single_player_camera(u32 mode) {
     if (!camera) {
         CM_ThrowRuntimeError("[spawn_players] [spawn_single_player_camera] NULL camera while attempting to create LookBehind camera for player one");
     }
-    CM_AttachCamera(camera, PLAYER_ONE);
+    CM_AttachCamera(camera, online_view_slot());
     gScreenContexts[PLAYER_ONE].lookBehindCamera = camera;
 }
 

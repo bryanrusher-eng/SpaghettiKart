@@ -3,6 +3,7 @@
  * A more suitable name may be print.c
  **/
 
+#include "online_race.h"
 #include <libultraship.h>
 #include <libultra/gbi.h>
 #include <stdio.h>
@@ -2663,6 +2664,12 @@ void draw_minimap_character(s32 arg0, s32 playerId, s32 characterId) {
         x = (center - (CM_GetProps()->Minimap.Width / 2)) + CM_GetProps()->Minimap.PlayerX + (s16) (thing0);
         y = (CM_GetProps()->Minimap.Pos[arg0].Y - (CM_GetProps()->Minimap.Height / 2)) +
             CM_GetProps()->Minimap.PlayerY + (s16) (thing1);
+        if (characterId == 8) {
+            // Los CPU salen en parejas (dos columnas muy juntas) y con 16 corredores sus puntos del minimapa
+            // se superponian: se separan unos pixeles segun el numero de jugador para que se vean todos.
+            x += (playerId & 1) ? 3 : -3;
+            y += ((playerId >> 1) & 1) ? 3 : -3;
+        }
         if (characterId != 8) {
             FrameInterpolation_RecordOpenChild("minimap_dots", TAG_MINIMAP_DOTS( ((arg0 & 0x1) << 9) | ((playerId & 0xF) << 5) | (characterId & 0xF) ));
             if ((gGPCurrentRaceRankByPlayerId[playerId] == 0) && (gModeSelection != 3) && (gModeSelection != 1)) {
@@ -2934,7 +2941,9 @@ void func_80050320(void) {
                 temp_v0 = gGPCurrentRacePlayerIdByRank[i];
                 characterId = gGPCurrentRaceCharacterIdByRank[i];
                 lapCount = gLapCountByPlayerId[temp_v0];
-                if (characterId == gPlayerOne->characterId) {
+                // El retrato resaltado es el del kart de esta PC (en online no siempre es el jugador 0).
+                if (online_race_setup_active() ? (temp_v0 == online_view_slot())
+                                               : (characterId == gPlayerOne->characterId)) {
                     func_8004FDB4(D_8018D028[i], D_8018D050[i], i, lapCount, characterId, 0x000000FF, 1, var_a0, 0);
                 } else {
                     func_8004FDB4(D_8018D028[i], D_8018D050[i], i, lapCount, characterId, D_8018D3E0, 0, var_a0, 0);

@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <macros.h>
 #include <mk64.h>
@@ -193,6 +194,8 @@ void setup_race(void) {
     LUSLOG_DEBUG("Setup Race!", 0);
     LUSLOG_DEBUG("Game Speed: %d", gTickLogic);
 
+    online_setup_begin();
+
     gPlayerCountSelection1 = gPlayerCount;
     if (gGamestate != RACING) {
         set_mirror_mode(0);
@@ -269,6 +272,8 @@ void setup_race(void) {
         controller->buttonDepressed = 0;
         controller->button = 0;
     }
+
+    online_setup_end();
 }
 
 void setup_editor(void) {

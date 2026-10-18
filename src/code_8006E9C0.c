@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <macros.h>
 #include <memory.h>
@@ -60,14 +61,14 @@ void reset_object_variable(void) {
     s32 j;
     func_8006EB10();
     clear_object_list();
-    memset(playerHUD, 0, HUD_PLAYERS_SIZE * sizeof(hud_player));
+    memset(playerHUD, 0, MAX_PLAYERS * sizeof(hud_player));
 
-    for (i = 0; i < HUD_PLAYERS_SIZE; i++) {
+    for (i = 0; i < MAX_PLAYERS; i++) {
         playerHUD[i].lapCount = 0;
         playerHUD[i].alsoLapCount = 0;
         playerHUD[i].unk_81 = 0;
     }
-    for (j = 0; j < HUD_PLAYERS_SIZE; j++) {
+    for (j = 0; j < MAX_PLAYERS; j++) {
         playerHUD[j].raceCompleteBool = 0;
     }
 }
@@ -654,37 +655,55 @@ void init_hud_one_player(void) {
     D_8018D150 = 0;
     D_8018CFCC = 1.0f;
     find_unused_obj_index(&D_80183DA0);
-    find_unused_obj_index(&gItemWindowObjectByPlayerId[0]);
-    find_unused_obj_index(&gItemWindowObjectByPlayerId[1]);
+    if (online_race_setup_active()) {
+        s32 slot;
+        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+            if (online_slot_is_human(slot)) {
+                find_unused_obj_index(&gItemWindowObjectByPlayerId[slot]);
+            }
+        }
+    } else {
+        find_unused_obj_index(&gItemWindowObjectByPlayerId[0]);
+        find_unused_obj_index(&gItemWindowObjectByPlayerId[1]);
+    }
     init_object_list_index();
     func_8007055C(gScreenOneCtx);
     func_8007055C(gScreenTwoCtx);
     init_course_object();
-    playerHUD[PLAYER_ONE].speedometerX = 0x0156;
-    playerHUD[PLAYER_ONE].speedometerY = 0x0106;
-    D_8018CFEC = playerHUD[PLAYER_ONE].speedometerX + 0x18;
-    D_8018CFF4 = playerHUD[PLAYER_ONE].speedometerY + 6;
+    playerHUD[online_view_slot()].speedometerX = 0x0156;
+    playerHUD[online_view_slot()].speedometerY = 0x0106;
+    D_8018CFEC = playerHUD[online_view_slot()].speedometerX + 0x18;
+    D_8018CFF4 = playerHUD[online_view_slot()].speedometerY + 6;
     D_8016579E = 0xDD00;
-    playerHUD[PLAYER_ONE].rankX = 52;
-    playerHUD[PLAYER_ONE].rankY = 0x00C8;
-    playerHUD[PLAYER_ONE].slideRankX = 0;
-    playerHUD[PLAYER_ONE].slideRankY = 0;
-    playerHUD[PLAYER_ONE].stagingPosition = gGPCurrentRaceRankByPlayerId[0];
-    playerHUD[PLAYER_ONE].timerX = 0x012C;
-    playerHUD[PLAYER_ONE].lapCompletionTimeXs[0] = 0x012C;
-    playerHUD[PLAYER_ONE].lapCompletionTimeXs[1] = 0x012C;
-    playerHUD[PLAYER_ONE].timerY = 0x0011;
-    playerHUD[PLAYER_ONE].lapX = -40;
-    playerHUD[PLAYER_ONE].lapAfterImage1X = -40;
-    playerHUD[PLAYER_ONE].lapAfterImage2X = -40;
-    playerHUD[PLAYER_ONE].lapY = 0x0019;
-    playerHUD[PLAYER_ONE].itemBoxX = 0x00A0;
-    playerHUD[PLAYER_ONE].itemBoxY = -0x0020;
-    playerHUD[PLAYER_ONE].slideItemBoxX = 0;
-    playerHUD[PLAYER_ONE].slideItemBoxY = 0;
+    playerHUD[online_view_slot()].rankX = 52;
+    playerHUD[online_view_slot()].rankY = 0x00C8;
+    playerHUD[online_view_slot()].slideRankX = 0;
+    playerHUD[online_view_slot()].slideRankY = 0;
+    playerHUD[online_view_slot()].stagingPosition = gGPCurrentRaceRankByPlayerId[0];
+    playerHUD[online_view_slot()].timerX = 0x012C;
+    playerHUD[online_view_slot()].lapCompletionTimeXs[0] = 0x012C;
+    playerHUD[online_view_slot()].lapCompletionTimeXs[1] = 0x012C;
+    playerHUD[online_view_slot()].timerY = 0x0011;
+    playerHUD[online_view_slot()].lapX = -40;
+    playerHUD[online_view_slot()].lapAfterImage1X = -40;
+    playerHUD[online_view_slot()].lapAfterImage2X = -40;
+    playerHUD[online_view_slot()].lapY = 0x0019;
+    playerHUD[online_view_slot()].itemBoxX = 0x00A0;
+    playerHUD[online_view_slot()].itemBoxY = -0x0020;
+    playerHUD[online_view_slot()].slideItemBoxX = 0;
+    playerHUD[online_view_slot()].slideItemBoxY = 0;
     // permuter magic
     why = 0x000000A0;
-    init_item_window(gItemWindowObjectByPlayerId[0]);
+    if (online_race_setup_active()) {
+        s32 slot;
+        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+            if (online_slot_is_human(slot)) {
+                init_item_window(gItemWindowObjectByPlayerId[slot]);
+            }
+        }
+    } else {
+        init_item_window(gItemWindowObjectByPlayerId[0]);
+    }
     for (someIndex = 0, something = 35.0f; someIndex < 8; someIndex++, something += 32.0) {
         D_8018D0C8[someIndex] = 40.0f;
         D_8018D028[someIndex] = -24.0f;
@@ -701,9 +720,9 @@ void init_hud_one_player(void) {
     D_8018D3EC = 0x000000FF;
     D_8018D3F0 = 0x000000FF;
     D_8018D3F4 = one;
-    playerHUD[PLAYER_ONE].unk_4C = 0x0078;
-    playerHUD[PLAYER_ONE].unk_4A = 0x00A0;
-    playerHUD[PLAYER_ONE].rankScaling = 0.5f;
+    playerHUD[online_view_slot()].unk_4C = 0x0078;
+    playerHUD[online_view_slot()].unk_4A = 0x00A0;
+    playerHUD[online_view_slot()].rankScaling = 0.5f;
     D_801656B0 = 0;
     D_80165708 = 0x0028;
     D_8018D00C = 5.0f;
@@ -725,6 +744,17 @@ void init_hud_one_player(void) {
             D_80165890 = 1;
             D_8018D158 = 1;
             break;
+    }
+
+    if (online_race_setup_active()) {
+        // El estado de la ruleta de items de cada humano depende de su propia entrada del marcador:
+        // todos los humanos parten del mismo estado inicial (en todas las PCs).
+        s32 slot;
+        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+            if (online_slot_is_human(slot) && (slot != online_view_slot())) {
+                playerHUD[slot] = playerHUD[online_view_slot()];
+            }
+        }
     }
 }
 

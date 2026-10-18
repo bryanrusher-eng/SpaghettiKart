@@ -1,3 +1,4 @@
+#include "online_race.h"
 #include <libultraship.h>
 #include <macros.h>
 #include <defines.h>
@@ -281,6 +282,11 @@ void func_80028864(Player* player, Camera* camera, s8 playerId, s8 screenId) {
     u16 sp1E;
 
     if (!(player->type & PLAYER_START_SEQUENCE)) {
+        if (online_race_setup_active()) {
+            // Carrera en red: la fisica no puede depender de la camara de cada PC (cada una mira un kart
+            // distinto), asi que todos los karts se tratan como "a la vista" y usan la fisica completa.
+            sp1E = 1;
+        } else
         switch (gActiveScreenMode) {
             case SCREEN_MODE_1P:
                 sp1E = check_player_camera_collision_rubberbanding(player, camera1, (f32) D_8016557C, 0.0f);
@@ -4243,6 +4249,16 @@ void handle_a_press_for_all_players_during_race(void) {
         case SCREEN_MODE_1P:
             switch (gModeSelection) {
                 case GRAND_PRIX:
+                    if (gOnlineRace) {
+                        // Carrera en red: cada humano maneja su kart con el mando de su slot.
+                        s32 slot;
+                        for (slot = 0; slot < NUM_PLAYERS; slot++) {
+                            if (online_slot_is_human(slot)) {
+                                handle_a_press_for_player_during_race(&gPlayers[slot], &gControllers[slot], slot);
+                            }
+                        }
+                        return;
+                    }
                     handle_a_press_for_player_during_race(gPlayerOne, gControllerOne, 0);
                     return;
                 case TIME_TRIALS:
