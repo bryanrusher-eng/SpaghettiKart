@@ -37,6 +37,9 @@ int NetBridge_GetFrame(unsigned int tick, unsigned short buttons[16], signed cha
 const char* NetBridge_SlotName(int slot);
 // Slots que ya salieron de la carrera (bit por slot).
 unsigned NetBridge_DroppedMask(void);
+// Victorias del jugador de ese slot en esta sala; y alta de una victoria (solo hace algo en el anfitrion).
+int NetBridge_Wins(int slot);
+void NetBridge_RaceWinner(int slot);
 
 #ifdef __cplusplus
 }

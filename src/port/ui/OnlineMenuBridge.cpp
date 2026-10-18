@@ -42,6 +42,7 @@ void OnlineMenu_GetInfo(OnlineMenuInfo* out) {
             d.ping = static_cast<int>(p.pingMs);
             d.isSelf = p.isSelf ? 1 : 0;
             d.character = p.character;
+            d.wins = p.wins;
             std::snprintf(d.name, sizeof(d.name), "%s", p.name.c_str());
         }
     }

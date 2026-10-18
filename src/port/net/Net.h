@@ -22,6 +22,7 @@ struct PeerInfo {
     std::string addr;   // "ip:puerto" (vacio para el propio)
     bool isSelf;
     int character = 0;  // personaje elegido (0..7); varios jugadores pueden repetirlo
+    int wins = 0;       // carreras ganadas en esta sala
 };
 
 // Crea una sala. Devuelve false y rellena err si falla (puerto ocupado, etc.).
@@ -98,6 +99,9 @@ bool RaceActive();
 bool RaceBusy(); // carrera cargandose o en marcha
 // Fin de carrera acordado por todos: el anfitrion sigue sirviendo mandos unos segundos por si alguien va atrasado.
 void RaceEndGraceful();
+// Anfitrion: suma una victoria al jugador de ese slot (se reparte a todos con la lista de jugadores).
+void RaceAddWin(int slot);
+int RaceWins(int slot);
 // Nombre que tenia el jugador de ese slot al empezar la carrera ("" si no era humano).
 std::string RaceName(int slot);
 

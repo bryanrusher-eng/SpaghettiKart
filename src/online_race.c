@@ -46,7 +46,13 @@ int online_results_seconds_left(void) {
 // vuelve juntos a la sala, sin pasar por las pantallas de Grand Prix del juego.
 void online_race_finished_tick(void) {
     if (sResultsTimer < 0) {
+        int winner = gGPCurrentRacePlayerIdByRank[0];
+
         sResultsTimer = 0;
+        // La victoria se anota una sola vez (el anfitrion la reparte a todos con la lista de jugadores).
+        if (online_slot_is_human(winner) && !((NetBridge_DroppedMask() >> winner) & 1)) {
+            NetBridge_RaceWinner(winner);
+        }
     }
     sResultsTimer++;
     if (sResultsTimer >= RESULTS_TICKS) {
@@ -58,8 +64,7 @@ void online_race_finished_tick(void) {
             fclose(sLog);
             sLog = NULL;
         }
-        online_menu_return_to_lobby();
-        func_80290338(); // salir al menu principal (como "Quit" del juego)
+        online_menu_after_race(); // el anfitrion va a elegir la siguiente pista; los demas a la sala
     }
 }
 

@@ -19,6 +19,7 @@
 #include "port/net/NetBridge.h"
 #include "math_util_2.h"
 #include "render_objects.h"
+#include "racing/race_logic.h"
 
 // Menu Online nativo. Todo el texto va en MAYUSCULAS sin acentos porque la fuente del juego solo trae A-Z, 0-9
 // y unos pocos signos.
@@ -48,6 +49,7 @@ static int sCc = 1;
 static int sChar = 0;
 // Flujo nativo: 0 = ninguno, 1 = anfitrion (SELECT PLAYER y luego elegir pista), 2 = cliente (solo SELECT PLAYER).
 static int sFlow = 0;
+static int sPicking = 0; // despues de una carrera: el anfitrion esta eligiendo la siguiente pista
 static int sFlowLeft = 0; // ya salimos del menu GAME SELECT (para saber cuando volvemos)
 static char sMsg[96];
 
@@ -328,6 +330,7 @@ static void update_lobby(u16 b, const OnlineMenuInfo* info) {
     if (b & B_BUTTON) {
         play_sound2(SOUND_MENU_GO_BACK);
         OnlineMenu_Leave();
+        sPicking = 0;
         sState = ST_MAIN;
         sCursor = 0;
     }
@@ -359,6 +362,30 @@ void online_menu_flow_tick(void) {
             sCursor = 0;
             sChar = OnlineMenu_GetCharacter();
         }
+    }
+}
+
+void online_menu_after_race(void) {
+    OnlineMenuInfo info;
+
+    OnlineMenu_GetInfo(&info);
+    if (info.role == 1) {
+        // Anfitrion: directo al selector de copas y pistas del juego (modo VS), sin pasar por GAME SELECT.
+        sFlow = 1;
+        sFlowLeft = 0;
+        sOpen = 0;
+        gModeSelection = VERSUS;
+        gPlayerCount = 1;
+        gPlayerCountSelection1 = 1;
+        gScreenModeSelection = SCREEN_MODE_1P;
+        gCCSelection = sCc;
+        gPlaceItemBoxes = 1;
+        func_80290388(); // como "cambiar de pista" del menu de pausa
+    } else {
+        sPicking = 1;
+        sFlow = 3;
+        sFlowLeft = 1; // ya salimos de los menus (estamos en carrera): al llegar al GAME SELECT se reabre la sala
+        func_80290338(); // salir al menu principal; ahi se reabre la sala a esperar al anfitrion
     }
 }
 
@@ -407,6 +434,7 @@ void online_menu_update(void) {
     OnlineMenu_GetInfo(&info);
     if (info.raceBusy) {
         sOpen = 0; // la carrera ya se esta cargando
+        sPicking = 0;
         return;
     }
     if (info.role != 0 && sState != ST_LOBBY) {
@@ -555,10 +583,14 @@ static void render_lobby(const OnlineMenuInfo* info) {
         clean(name, p->name, 11);
         {
             int ch = (p->character >= 0 && p->character < 8) ? p->character : 0;
+            char wins[12] = "";
+            if (p->wins > 0) {
+                snprintf(wins, sizeof(wins), "  %dV", p->wins);
+            }
             if (p->isSelf) {
-                snprintf(line, sizeof(line), "%d %s  %s", p->slot + 1, name, kCharNames[ch]);
+                snprintf(line, sizeof(line), "%d %s  %s%s", p->slot + 1, name, kCharNames[ch], wins);
             } else {
-                snprintf(line, sizeof(line), "%d %s  %s  %dMS", p->slot + 1, name, kCharNames[ch], p->ping);
+                snprintf(line, sizeof(line), "%d %s  %s%s  %dMS", p->slot + 1, name, kCharNames[ch], wins, p->ping);
             }
         }
         text(x, y, line, p->isSelf ? TEXT_GREEN : TEXT_BLUE, 0.5f);
@@ -577,7 +609,8 @@ static void render_lobby(const OnlineMenuInfo* info) {
         text_center(212, "ARRIBA ABAJO ELEGIR   IZQ DER CILINDRADA   B SALIR", TEXT_BLUE, 0.4f);
     } else if (info->role == 2 && info->connected) {
         text_center(168, "ELEGIR PERSONAJE", sel_color(sCursor == LOBBY_PICK), 0.7f);
-        text_center(190, "ESPERANDO AL ANFITRION...", TEXT_YELLOW, 0.55f);
+        text_center(190, sPicking ? "EL ANFITRION ESTA ELIGIENDO LA PISTA..." : "ESPERANDO AL ANFITRION...", TEXT_YELLOW,
+                    0.55f);
         text_center(212, "A ELEGIR PERSONAJE   B SALIR DE LA SALA", TEXT_BLUE, 0.45f);
     } else {
         text_center(212, "B CANCELAR", TEXT_BLUE, 0.45f);
@@ -669,6 +702,10 @@ void online_results_render(void) {
         snprintf(line, sizeof(line), "%d", rank + 1);
         text(cx - 33, top + 17, line, TEXT_YELLOW, 0.55f);
         text_center_at(cx, top + 34, name, color, 0.45f);
+        if (human && NetBridge_Wins(slot) > 0) {
+            snprintf(line, sizeof(line), "%d VICT", NetBridge_Wins(slot));
+            text_center_at(cx, top + 41, line, TEXT_GREEN, 0.35f);
+        }
     }
     snprintf(line, sizeof(line), "VOLVIENDO A LA SALA EN %d", online_results_seconds_left());
     text_center(210, line, TEXT_BLUE, 0.5f);

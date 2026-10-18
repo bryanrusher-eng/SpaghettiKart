@@ -41,7 +41,7 @@ namespace Net {
 namespace {
 
 constexpr uint32_t kMagic = 0x314E4B4D; // "MKN1"
-constexpr uint16_t kProtocolVersion = 2;
+constexpr uint16_t kProtocolVersion = 3;
 
 enum PacketType : uint8_t {
     PKT_HELLO = 1,   // cliente -> host: version, nombre
@@ -141,6 +141,7 @@ struct LeftEvent {
     uint64_t at;
 };
 std::vector<LeftEvent> g_leftEvents;
+int g_wins[kMaxPlayers] = { 0 }; // victorias por slot (la cuenta la lleva el anfitrion y la reparte)
 std::string g_raceNames[kMaxPlayers]; // nombres al empezar la carrera (para los resultados)
 uint64_t g_raceEndAt = 0;             // host: cuando cerrar la carrera de verdad (0 = no)
 uint16_t g_droppedMask = 0;
@@ -380,11 +381,11 @@ int FreeSlot() {
 
 std::vector<PeerInfo> HostRoster() {
     std::vector<PeerInfo> r;
-    r.push_back({ 0, g_myName, 0, std::string(), true, g_myCharacter });
+    r.push_back({ 0, g_myName, 0, std::string(), true, g_myCharacter, g_wins[0] });
     std::vector<const Peer*> ps;
     for (auto& kv : g_peers) ps.push_back(&kv.second);
     std::sort(ps.begin(), ps.end(), [](const Peer* a, const Peer* b) { return a->slot < b->slot; });
-    for (const Peer* p : ps) r.push_back({ p->slot, p->name, p->ping, std::string(), false, p->character });
+    for (const Peer* p : ps) r.push_back({ p->slot, p->name, p->ping, std::string(), false, p->character, g_wins[p->slot] });
     return r;
 }
 
@@ -398,6 +399,7 @@ void BroadcastRoster() {
         w.str(p.name);
         w.u16(static_cast<uint16_t>(std::min<uint32_t>(p.pingMs, 65535)));
         w.u8(static_cast<uint8_t>(p.character));
+        w.u8(static_cast<uint8_t>(std::min(p.wins, 255)));
     }
     for (auto& kv : g_peers) SendTo(kv.second.addr, w);
     g_lastRoster = NowMs();
@@ -405,6 +407,7 @@ void BroadcastRoster() {
 }
 
 void ResetState() {
+    for (int s = 0; s < kMaxPlayers; s++) g_wins[s] = 0;
     g_peers.clear();
     g_roster.clear();
     g_cstate = ClientState::Idle;
@@ -710,6 +713,7 @@ void HandleClientPacket(const sockaddr_in& from, uint8_t type, Reader& r, uint64
                 pi.name = r.str();
                 pi.pingMs = r.u16();
                 pi.character = r.u8();
+                pi.wins = r.u8();
                 pi.isSelf = (pi.slot == g_mySlot);
                 if (pi.isSelf) pi.pingMs = g_myPing;
                 list.push_back(pi);
@@ -1403,6 +1407,21 @@ void RaceEnd() {
 bool RaceActive() { return g_race.active; }
 
 bool RaceBusy() { return (g_race.active && g_raceEndAt == 0) || g_race.pending || g_race.starting; }
+
+void RaceAddWin(int slot) {
+    if (g_role != Role::Host || slot < 0 || slot >= kMaxPlayers) return;
+    g_wins[slot]++;
+    g_rosterDirty = true;
+}
+
+int RaceWins(int slot) {
+    if (slot < 0 || slot >= kMaxPlayers) return 0;
+    if (g_role == Role::Host) return g_wins[slot];
+    for (const PeerInfo& pi : g_roster) {
+        if (pi.slot == slot) return pi.wins;
+    }
+    return 0;
+}
 
 void RaceEndGraceful() {
     if (g_role == Role::Host && g_race.active) {

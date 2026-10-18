@@ -13,6 +13,7 @@ typedef struct OnlineMenuPeer {
     int ping;
     int isSelf;
     int character;
+    int wins;
     char name[32];
 } OnlineMenuPeer;
 

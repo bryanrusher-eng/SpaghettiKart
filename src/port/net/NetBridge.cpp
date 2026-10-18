@@ -51,6 +51,10 @@ int NetBridge_LocalSlot(void) { return Net::GetLocalSlot(); }
 
 unsigned NetBridge_DroppedMask(void) { return Net::RaceDroppedMask(); }
 
+int NetBridge_Wins(int slot) { return Net::RaceWins(slot); }
+
+void NetBridge_RaceWinner(int slot) { Net::RaceAddWin(slot); }
+
 void NetBridge_Pump(void) {
     Net::Tick();
 #ifdef _WIN32
