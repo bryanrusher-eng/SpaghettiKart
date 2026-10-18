@@ -15,6 +15,7 @@
 #include "port/Game.h"
 #include "port/net/NetBridge.h"
 #include "online_menu.h"
+#include "engine/TrackBrowser.h"
 #include "racing/race_logic.h"
 
 extern OSContPad gControllerPads[];
@@ -134,10 +135,24 @@ void online_poll_start(void) {
     gPlayerCount = 1;
     gPlayerCountSelection1 = 1;
     gCCSelection = sParams.cc;
-    CM_SetCupIndex(sParams.cup);
-    SetCupCursorPosition(sParams.track);
-    gCupSelection = sParams.cup;
-    gCourseIndexInCup = sParams.track;
+    // Se carga la pista como lo hace el selector del juego (si no, solo la primera pista de la primera copa se ve bien).
+    {
+        void* cups[4];
+        int cup = sParams.cup > 3 ? 0 : sParams.cup;
+        int track = sParams.track > 3 ? 0 : sParams.track;
+
+        cups[0] = GetMushroomCup();
+        cups[1] = GetFlowerCup();
+        cups[2] = GetStarCup();
+        cups[3] = GetSpecialCup();
+        CM_SetCup(cups[cup]);
+        SetCupCursorPosition(track);
+        gCupSelection = cup;
+        gCourseIndexInCup = track;
+        gCurrentCourseId = gCupCourseOrder[cup][track];
+        TrackBrowser_SetTrackFromCup();
+        D_800DC540 = GetCupIndex();
+    }
     gCharacterSelections[0] = online_slot_character(0);
     gDemoMode = 0;
     gMenuSelection = COURSE_SELECT_MENU; // distinto de START_MENU: asi setup_race() elige la pista de la copa
