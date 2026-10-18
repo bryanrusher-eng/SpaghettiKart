@@ -86,7 +86,6 @@ void DrawShadowText(ImDrawList* dl, ImFont* font, float size, ImVec2 pos, ImU32 
 } // namespace
 
 void OverlayWindow::DrawElement() {
-    }
     OnlineViewData v;
     int have = online_get_view_data(&v);
     std::vector<Net::PeerInfo> peers = Net::GetPeers();
