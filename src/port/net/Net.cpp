@@ -141,6 +141,8 @@ struct LeftEvent {
     uint64_t at;
 };
 std::vector<LeftEvent> g_leftEvents;
+std::string g_raceNames[kMaxPlayers]; // nombres al empezar la carrera (para los resultados)
+uint64_t g_raceEndAt = 0;             // host: cuando cerrar la carrera de verdad (0 = no)
 uint16_t g_droppedMask = 0;
 struct PendingLeft {
     int slot;
@@ -1234,6 +1236,10 @@ void Tick() {
             it = (it->sends >= 4) ? g_pendingLeft.erase(it) : it + 1;
         }
         if (g_race.active) HostTryComplete(); // por si un jugador callado ya paso de 1 s
+        if (g_raceEndAt != 0 && now >= g_raceEndAt) {
+            g_raceEndAt = 0;
+            RaceEnd();
+        }
         if (!dead.empty() || !g_peers.empty()) {
             g_status = (g_viaRelay ? "Sala " + g_roomCode + ": " : std::string("Sala activa: ")) +
                        std::to_string(g_peers.size() + 1) + " jugador(es)";
@@ -1362,6 +1368,11 @@ void RaceBegin() {
     g_leftEvents.clear();
     g_pendingLeft.clear();
     g_droppedMask = 0;
+    g_raceEndAt = 0;
+    for (int s = 0; s < kMaxPlayers; s++) g_raceNames[s].clear();
+    for (const PeerInfo& pi : GetPeers()) {
+        if (pi.slot >= 0 && pi.slot < kMaxPlayers) g_raceNames[pi.slot] = pi.name;
+    }
     g_race.active = true;
     g_race.delay = std::max<int>(1, std::min<int>(params.delay, 12));
     g_race.humanMask = 0;
@@ -1384,13 +1395,27 @@ void RaceBegin() {
 }
 
 void RaceEnd() {
+    g_raceEndAt = 0;
     if (g_race.active || g_race.pending) Log("Carrera terminada");
     g_race = RaceState();
 }
 
 bool RaceActive() { return g_race.active; }
 
-bool RaceBusy() { return g_race.active || g_race.pending || g_race.starting; }
+bool RaceBusy() { return (g_race.active && g_raceEndAt == 0) || g_race.pending || g_race.starting; }
+
+void RaceEndGraceful() {
+    if (g_role == Role::Host && g_race.active) {
+        g_raceEndAt = NowMs() + 4000;
+    } else {
+        RaceEnd();
+    }
+}
+
+std::string RaceName(int slot) {
+    if (slot < 0 || slot >= kMaxPlayers) return std::string();
+    return g_raceNames[slot];
+}
 
 std::vector<LeftInfo> GetLeftEvents() {
     std::vector<LeftInfo> r;

@@ -278,6 +278,8 @@ void print_timer_rainbow(s32, s32, s32);
 void render_hud_timer(s32);
 void draw_lap_count(s16, s16, s8);
 void func_8004FDB4(f32, f32, s16, s16, s16, s32, s32, s32, s32);
+void draw_portrait_small(s32 x, s32 y, s32 characterId, f32 scale, s32 hud, s32 border, u32 r, u32 g, u32 b,
+                         u32 alpha);
 
 void func_80050320(void);
 s32 func_80050644(u16, s32*, s32*);

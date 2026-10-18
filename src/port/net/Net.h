@@ -96,6 +96,10 @@ void RaceBegin();
 void RaceEnd();
 bool RaceActive();
 bool RaceBusy(); // carrera cargandose o en marcha
+// Fin de carrera acordado por todos: el anfitrion sigue sirviendo mandos unos segundos por si alguien va atrasado.
+void RaceEndGraceful();
+// Nombre que tenia el jugador de ese slot al empezar la carrera ("" si no era humano).
+std::string RaceName(int slot);
 
 // Jugadores que salieron durante la carrera (para la leyenda "X salio de la partida").
 struct LeftInfo {

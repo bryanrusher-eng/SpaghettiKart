@@ -53,6 +53,7 @@ void OnlineMenu_GetName(char* out, int size) {
 
 void OnlineMenu_SetName(const char* name) {
     CVarSetString("gOnline.Name", name);
+    CVarSave(); // se guarda en disco: el nombre queda para la proxima vez que se abra el juego
 }
 
 int OnlineMenu_GetCharacter(void) {
@@ -65,6 +66,7 @@ int OnlineMenu_GetCharacter(void) {
 void OnlineMenu_SetCharacter(int c) {
     Net::SetMyCharacter(c);
     CVarSetInteger("gOnline.Character", c);
+    CVarSave();
 }
 
 int OnlineMenu_ServerConfigured(void) {

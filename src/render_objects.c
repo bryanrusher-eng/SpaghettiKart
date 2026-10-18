@@ -2881,6 +2881,64 @@ void draw_lap_count(s16 lapX, s16 lapY, s8 lap) {
     gSPDisplayList(gDisplayListHead++, D_0D007EB8);
 }
 
+// Retrato del personaje a escala reducida. 'hud' = 1 lo coloca como el HUD (pegado al borde en pantalla ancha);
+// 'border' = 1 le pone un borde de color; 'alpha' atenua el retrato (255 = normal).
+void draw_portrait_small(s32 x, s32 y, s32 characterId, f32 scale, s32 hud, s32 border, u32 r, u32 g, u32 b,
+                         u32 alpha) {
+    if (hud) {
+        func_80042330_portrait(x, y, 0U, scale, 0);
+    } else {
+        func_80042330_unchanged(x, y, 0U, scale);
+    }
+    gSPDisplayList(gDisplayListHead++, D_0D007DB8);
+    func_8004B35C(0x000000FF, 0x000000FF, 0x000000FF, alpha);
+    gDPLoadTLUT_pal256(gDisplayListHead++, gPortraitTLUTs[characterId]);
+    rsp_load_texture(gPortraitTextures[characterId], 0x00000020, 0x00000020);
+    gSPDisplayList(gDisplayListHead++, D_0D0069E0);
+
+    if (border) {
+        if (hud) {
+            func_80042330_portrait(x, y, 0U, scale, 0);
+        } else {
+            func_80042330_unchanged(x, y, 0U, scale);
+        }
+        gSPDisplayList(gDisplayListHead++, D_0D007A60);
+        func_8004B35C(r, g, b, 0x000000FF);
+        func_80044924((u8*) common_texture_character_portrait_border, 0x20, 0x20);
+        gSPDisplayList(gDisplayListHead++, D_0D0069E0);
+    }
+    gSPTexture(gDisplayListHead++, 0x0001, 0x0001, 0, G_TX_RENDERTILE, G_OFF);
+}
+
+// Carrera en red con hasta 16 corredores: la columna de retratos por puesto (1o..16o) en dos columnas de 8,
+// mas pequenas, con el numero de puesto al lado. El del kart de esta PC lleva el borde azul.
+static void draw_online_rank_portraits(void) {
+    s32 i;
+    s32 local = online_view_slot();
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        s32 pid = gGPCurrentRacePlayerIdByRank[i];
+        s32 ch = gGPCurrentRaceCharacterIdByRank[i];
+        s32 col = i / 8;
+        s32 row = i % 8;
+        s32 x = 32 + col * 34;
+        s32 y = 34 + row * 20;
+        char num[4];
+
+        if (ch < 0 || ch > 7) {
+            ch = 0;
+        }
+        FrameInterpolation_RecordOpenChild("ranking_portraits_online", i);
+        draw_portrait_small(x, y, ch, 0.55f, 1, pid == local, 0x00, 0x00, 0xFF, (pid == local) ? 0xFF : D_8018D3E0);
+        snprintf(num, sizeof(num), "%d", i + 1);
+        set_text_color(pid == local ? TEXT_YELLOW : TEXT_BLUE);
+        print_text_mode_1((s32) OTRGetDimensionFromLeftEdge((f32) (x - 22 - ((i + 1) >= 10 ? 4 : 0))), y + 5, num, 0,
+                          0.5f, 0.5f);
+        FrameInterpolation_RecordCloseChild();
+    }
+    gSPTexture(gDisplayListHead++, 0x0001, 0x0001, 0, G_TX_RENDERTILE, G_OFF);
+}
+
 void func_8004FDB4(f32 arg0, f32 arg1, s16 arg2, s16 arg3, s16 characterId, s32 arg5, s32 arg6, s32 arg7, s32 arg8) {
     if ((IsYoshiValley()) && (arg3 < 3) && (arg8 == 0)) {
         func_80042330((s32) arg0, (s32) arg1, 0U, 1.0f);
@@ -2922,6 +2980,10 @@ void func_8004FDB4(f32 arg0, f32 arg1, s16 arg2, s16 arg3, s16 characterId, s32 
 }
 
 void func_80050320(void) {
+    if (online_race_setup_active()) {
+        draw_online_rank_portraits();
+        return;
+    }
     s16 temp_v0;
     s16 characterId;
     s32 i;

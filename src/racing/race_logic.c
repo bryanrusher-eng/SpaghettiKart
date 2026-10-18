@@ -1016,6 +1016,8 @@ void func_8028FCBC(void) {
         case RACE_FINISHED:
             if (D_802BA038 != 0) {
                 D_802BA038--;
+            } else if (gOnlineRace) {
+                online_race_finished_tick(); // carrera en red: resultados propios y vuelta a la sala
             } else {
                 switch (gModeSelection) {
                     case GRAND_PRIX:

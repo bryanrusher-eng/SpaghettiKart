@@ -41,6 +41,8 @@ void NetBridge_RaceBegin(void) { Net::RaceBegin(); }
 
 void NetBridge_RaceEnd(void) { Net::RaceEnd(); }
 
+void NetBridge_RaceEndGraceful(void) { Net::RaceEndGraceful(); }
+
 int NetBridge_RaceActive(void) { return Net::RaceActive() ? 1 : 0; }
 
 int NetBridge_RaceDelay(void) { return Net::RaceDelay(); }
@@ -90,6 +92,9 @@ const char* NetBridge_SlotName(int slot) {
             name = p.name;
             break;
         }
+    }
+    if (name.empty()) {
+        name = Net::RaceName(slot); // ya se fue de la sala: el nombre que tenia al empezar
     }
     return name.c_str();
 }

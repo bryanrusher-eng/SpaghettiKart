@@ -15,6 +15,10 @@ void online_menu_render(void);
 
 // Flujo con los menus nativos del juego (SELECT PLAYER y eleccion de pista).
 int online_menu_flow_active(void);
+// Despues de una carrera en red: al volver al GAME SELECT se reabre la sala.
+void online_menu_return_to_lobby(void);
+// Resultados de la carrera en red (nombres de los jugadores en vez de los personajes).
+void online_results_render(void);
 void online_menu_flow_tick(void);
 void online_menu_player_done(void);
 void online_menu_course_done(void);

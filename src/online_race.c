@@ -14,6 +14,8 @@
 #include "code_80005FD0.h"
 #include "port/Game.h"
 #include "port/net/NetBridge.h"
+#include "online_menu.h"
+#include "racing/race_logic.h"
 
 extern OSContPad gControllerPads[];
 extern u16 gRandomSeed16;
@@ -27,6 +29,39 @@ static int sLHeld = 0; // el boton L del mando local esta pulsado
 static u32 sHumanMask = 0;
 static u32 sTick = 0;
 static FILE* sLog = NULL;
+static int sResultsTimer = -1; // ticks desde que se muestran los resultados (-1 = aun no)
+
+#define RESULTS_TICKS 450 // 15 s
+
+int online_results_active(void) {
+    return gOnlineRace && sResultsTimer >= 0;
+}
+
+int online_results_seconds_left(void) {
+    int left = (RESULTS_TICKS - sResultsTimer + 29) / 30;
+    return left < 0 ? 0 : left;
+}
+
+// Todas las PCs llegan a este tick a la vez (la simulacion es la misma): se muestran los resultados 15 s y se
+// vuelve juntos a la sala, sin pasar por las pantallas de Grand Prix del juego.
+void online_race_finished_tick(void) {
+    if (sResultsTimer < 0) {
+        sResultsTimer = 0;
+    }
+    sResultsTimer++;
+    if (sResultsTimer >= RESULTS_TICKS) {
+        sResultsTimer = -1;
+        gOnlineRace = 0;
+        NetBridge_RaceEndGraceful();
+        if (sLog != NULL) {
+            fprintf(sLog, "FIN de carrera en tick %u\n", sTick);
+            fclose(sLog);
+            sLog = NULL;
+        }
+        online_menu_return_to_lobby();
+        func_80290338(); // salir al menu principal (como "Quit" del juego)
+    }
+}
 
 int online_race_setup_active(void) {
     return gOnlineRaceSetup || gOnlineRace;
@@ -92,6 +127,7 @@ void online_poll_start(void) {
     gDemoMode = 0;
     gMenuSelection = COURSE_SELECT_MENU; // distinto de START_MENU: asi setup_race() elige la pista de la copa
 
+    sResultsTimer = -1;
     gOnlineRaceSetup = 1;
     gGamestateNext = RACING;
 }

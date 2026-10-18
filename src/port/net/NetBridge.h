@@ -23,6 +23,8 @@ typedef struct NetBridgeRace {
 int NetBridge_PollRaceStart(NetBridgeRace* out);
 void NetBridge_RaceBegin(void);
 void NetBridge_RaceEnd(void);
+// Fin de carrera acordado por todos (el anfitrion sigue sirviendo mandos unos segundos).
+void NetBridge_RaceEndGraceful(void);
 int NetBridge_RaceActive(void);
 int NetBridge_RaceDelay(void);
 int NetBridge_LocalSlot(void);

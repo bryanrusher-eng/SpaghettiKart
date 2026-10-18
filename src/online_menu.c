@@ -16,6 +16,9 @@
 #include "code_800029B0.h"
 #include "port/Game.h"
 #include "port/ui/OnlineMenuBridge.h"
+#include "port/net/NetBridge.h"
+#include "math_util_2.h"
+#include "render_objects.h"
 
 // Menu Online nativo. Todo el texto va en MAYUSCULAS sin acentos porque la fuente del juego solo trae A-Z, 0-9
 // y unos pocos signos.
@@ -86,6 +89,22 @@ void online_menu_open(void) {
     sState = ST_MAIN;
     sCursor = 0;
     sMsg[0] = 0;
+    OnlineMenu_GetName(raw, sizeof(raw));
+    clean(sName, raw, sizeof(sName));
+    if (sName[0] == 0) {
+        strcpy(sName, "JUGADOR");
+    }
+    // La primera vez (todavia con el nombre de fabrica) se pide el nombre antes que nada.
+    if (strcmp(raw, "Jugador") == 0) {
+        sName[0] = 0;
+        sNamePos = 0;
+        sState = ST_NAME;
+    }
+}
+
+static void reload_name(void) {
+    char raw[32];
+
     OnlineMenu_GetName(raw, sizeof(raw));
     clean(sName, raw, sizeof(sName));
     if (sName[0] == 0) {
@@ -208,7 +227,7 @@ static void update_name(u16 b) {
         sState = ST_MAIN;
     } else if (b & B_BUTTON) {
         play_sound2(SOUND_MENU_GO_BACK);
-        online_menu_open(); // descarta los cambios
+        reload_name(); // descarta los cambios
         sState = ST_MAIN;
         sCursor = ROW_NAME;
     }
@@ -343,8 +362,13 @@ void online_menu_flow_tick(void) {
     }
 }
 
+void online_menu_return_to_lobby(void) {
+    sFlow = 3;
+    sFlowLeft = 0;
+}
+
 int online_menu_flow_active(void) {
-    return sFlow != 0;
+    return sFlow == 1 || sFlow == 2;
 }
 
 // El jugador confirmo su personaje en el SELECT PLAYER del juego.
@@ -423,6 +447,11 @@ static void text(int x, int y, const char* s, int color, f32 scale) {
 static void text_center(int y, const char* s, int color, f32 scale) {
     int w = (int) (get_string_width((char*) s) * scale);
     text(160 - w / 2, y, s, color, scale);
+}
+
+static void text_center_at(int cx, int y, const char* s, int color, f32 scale) {
+    int w = (int) (get_string_width((char*) s) * scale);
+    text(cx - w / 2, y, s, color, scale);
 }
 
 static int sel_color(int selected) {
@@ -577,4 +606,70 @@ void online_menu_render(void) {
             render_lobby(&info);
             break;
     }
+}
+
+/* ---------------------------- resultados de la carrera ---------------------------- */
+
+void online_results_render(void) {
+    OnlineViewData v;
+    char line[64];
+    char name[32];
+    int rank;
+    int local;
+
+    if (!online_results_active() || !online_get_view_data(&v)) {
+        return;
+    }
+    local = v.localSlot;
+    set_matrix_hud_screen();
+    gDisplayListHead = draw_box(gDisplayListHead, 0, 0, 320, 240, 0, 0, 0, 150);
+    gDisplayListHead = draw_box(gDisplayListHead, 14, 14, 306, 226, 40, 70, 140, 255);
+    gDisplayListHead = draw_box(gDisplayListHead, 17, 17, 303, 223, 10, 16, 44, 255);
+    text_center(22, "RESULTADOS", TEXT_YELLOW, 0.8f);
+
+    // 16 casillas (4 x 4): retrato pequeño, puesto y, debajo, el nombre del jugador (o el personaje si es CPU)
+    for (rank = 0; rank < v.numKarts && rank < 16; rank++) {
+        int slot = v.rankPlayer[rank];
+        int col = rank % 4;
+        int row = rank / 4;
+        int cx = 55 + col * 70;     // centro de la casilla
+        int top = 38 + row * 41;
+        int ch;
+        int human;
+        int color;
+        u32 br;
+        u32 bg;
+        u32 bb;
+
+        if (slot < 0 || slot >= 16) {
+            continue;
+        }
+        ch = v.kart[slot].character;
+        if (ch < 0 || ch > 7) {
+            ch = 0;
+        }
+        human = v.kart[slot].human || online_slot_is_human(slot);
+        if (human) {
+            clean(name, NetBridge_SlotName(slot), 10);
+            if (name[0] == 0) {
+                snprintf(name, sizeof(name), "JUGADOR %d", slot + 1);
+            }
+            color = (slot == local) ? TEXT_GREEN : TEXT_YELLOW;
+            br = (slot == local) ? 90 : 255;
+            bg = 255;
+            bb = (slot == local) ? 120 : 90;
+        } else {
+            snprintf(name, sizeof(name), "%s", kCharNames[ch]);
+            color = TEXT_BLUE;
+            br = 120;
+            bg = 140;
+            bb = 200;
+        }
+        draw_portrait_small(cx - 11, top + 11, ch, 0.7f, 0, 1, br, bg, bb, 255);
+        snprintf(line, sizeof(line), "%d", rank + 1);
+        text(cx - 33, top + 17, line, TEXT_YELLOW, 0.55f);
+        text_center_at(cx, top + 34, name, color, 0.45f);
+    }
+    snprintf(line, sizeof(line), "VOLVIENDO A LA SALA EN %d", online_results_seconds_left());
+    text_center(210, line, TEXT_BLUE, 0.5f);
 }

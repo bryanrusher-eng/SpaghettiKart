@@ -654,6 +654,10 @@ void render_hud(u32 arg0) {
 
     D_8018D21C = arg0;
     gSPDisplayList(gDisplayListHead++, D_0D0076F8);
+    if (arg0 == RENDER_SCREEN_MODE_1P_PLAYER_ONE && online_results_active()) {
+        online_results_render(); // resultados de la carrera en red: sustituyen al HUD
+        return;
+    }
     if (D_8018D22C == 0) {
         switch (arg0) {
             case RENDER_SCREEN_MODE_1P_PLAYER_ONE:
@@ -808,7 +812,7 @@ void func_800590D4(void) {
 
 void func_800591B4(void) {
 
-    if ((gHUDDisable == 0) && (D_800DC5B8 != 0)) {
+    if ((gHUDDisable == 0) && (D_800DC5B8 != 0) && !online_results_active()) {
         func_80057C60();
         gSPDisplayList(gDisplayListHead++, D_0D0076F8);
         gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER);

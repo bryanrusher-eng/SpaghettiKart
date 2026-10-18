@@ -25,6 +25,10 @@ int online_view_slot(void);
 
 // Se llama cada fotograma, aunque no haya carrera: recoge el aviso de inicio del anfitrion.
 void online_poll_start(void);
+// Fin de la carrera en red: la llama la logica de carrera en cada tick cuando acabo la cuenta atras de resultados.
+void online_race_finished_tick(void);
+int online_results_active(void);
+int online_results_seconds_left(void);
 // Dentro de setup_race(): fija la semilla aleatoria y los valores previos a cargar la pista.
 void online_setup_begin(void);
 // Al final de setup_race(): arranca el intercambio de mandos.
